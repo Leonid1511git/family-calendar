@@ -1,0 +1,85 @@
+{
+  "expo": {
+    "name": "Family Calendar",
+    "slug": "family-calendar",
+    "version": "2.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.familycalendar.app",
+      "buildNumber": "2.0.0",
+      "infoPlist": {
+        "NSCalendarsUsageDescription": "Приложению нужен доступ к календарю для создания событий",
+        "NSRemindersUsageDescription": "Приложению нужен доступ к напоминаниям",
+        "NSMicrophoneUsageDescription": "Приложению нужен доступ к микрофону для голосового ввода",
+        "NSSpeechRecognitionUsageDescription": "Приложению нужен доступ к распознаванию речи для голосового ввода",
+        "UIBackgroundModes": [
+          "remote-notification",
+          "fetch"
+        ]
+      }
+    },
+    "android": {
+      "package": "com.familycalendar.app",
+      "versionCode": 2,
+      "adaptiveIcon": {
+        "backgroundColor": "#FFFFFF"
+      },
+      "permissions": [
+        "READ_CALENDAR",
+        "WRITE_CALENDAR",
+        "RECEIVE_BOOT_COMPLETED",
+        "SCHEDULE_EXACT_ALARM",
+        "USE_EXACT_ALARM",
+        "POST_NOTIFICATIONS",
+        "RECORD_AUDIO",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "VIBRATE",
+        "WAKE_LOCK",
+        "FOREGROUND_SERVICE",
+        "android.permission.READ_CALENDAR",
+        "android.permission.WRITE_CALENDAR",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
+    },
+    "web": {},
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "color": "#007AFF"
+        }
+      ],
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Приложению нужен доступ к календарю для создания событий"
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Приложению нужен доступ к микрофону для голосового ввода"
+        }
+      ],
+      "expo-asset",
+      "@react-native-community/datetimepicker"
+    ],
+    "scheme": "familycalendar",
+    "extra": {
+      "eas": {
+        "projectId": "b3d2681b-4481-4117-ae4f-6972e8efc401"
+      }
+    }
+  }
+}

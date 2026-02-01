@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Вход через Telegram</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Telegram проверяет домен по заголовку Referer; без него — «Bot domain invalid». -->
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <style>
+    body { font-family: system-ui, sans-serif; padding: 24px; max-width: 360px; margin: 0 auto; line-height: 1.5; }
+    .domain { background: #f0f0f0; padding: 8px 12px; border-radius: 8px; margin: 12px 0; font-family: monospace; word-break: break-all; }
+    .hint { font-size: 14px; color: #666; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <p style="font-size:11px; color:#888; margin-bottom:8px;">Страница v2 (с блоком диагностики)</p>
+  <p id="msg">Нажмите кнопку ниже, чтобы перейти к входу через Telegram.</p>
+
+  <div style="margin:16px 0; padding:12px; background:#e8f4fc; border:1px solid #0088cc; border-radius:8px;">
+    <p style="margin:0 0 8px 0; font-weight:600; font-size:14px;">Диагностика: найти причину</p>
+    <p class="hint" style="margin:0 0 6px 0; font-size:12px;"><strong>1) Тот ли бот.</strong> ID бота: <code id="botIdOut"></code>. В @BotFather → /setdomain выберите именно этого бота.</p>
+    <p class="hint" style="margin:0 0 6px 0; font-size:12px;"><strong>2) Тест на ПК.</strong> Скопируйте URL ниже, откройте его в Chrome на компьютере и нажмите «Перейти к Telegram». Работает на ПК, но не с телефона? → проблема Referer из приложения. И на ПК «Bot domain invalid»? → не совпадает домен в BotFather.</p>
+    <p class="domain" id="currentPageUrl" style="font-size:11px; margin:8px 0 0 0;" title="Нажмите, чтобы скопировать. Откройте на ПК"></p>
+    <p class="hint" style="margin:8px 0 0 0; font-size:12px;">Отправляемый в Telegram <code>origin</code>: <span id="originOut" class="domain" style="display:inline;"></span></p>
+  </div>
+
+  <p class="hint" id="hint">Если «Bot domain invalid»: в @BotFather → /setdomain можно попробовать <strong>два варианта</strong>.</p>
+  <p class="hint" style="margin-top:8px; font-size:13px"><strong>1)</strong> Полный URL — скопируйте и вставьте в BotFather:</p>
+  <p class="domain" id="originFull" title="Скопируйте и вставьте в BotFather"></p>
+  <p class="hint" style="margin-top:8px; font-size:13px"><strong>2)</strong> Только домен без https:</p>
+  <p class="domain" id="domain" title="Наберите вручную в BotFather"></p>
+
+  <p style="margin-top:16px"><a id="goBtn" href="#" style="display:inline-block; padding:10px 20px; background:#0088cc; color:#fff; text-decoration:none; border-radius:8px;">Перейти к Telegram</a></p>
+  <script>
+    (function() {
+      var params = new URLSearchParams(window.location.search);
+      var redirectUri = params.get('redirect_uri');
+      var botId = params.get('bot_id');
+      var host = window.location.host;
+      var originFull = window.location.origin;
+      document.getElementById('originFull').textContent = originFull;
+      document.getElementById('originFull').onclick = function() { navigator.clipboard && navigator.clipboard.writeText(originFull); };
+      document.getElementById('domain').textContent = host;
+      document.getElementById('domain').onclick = function() { navigator.clipboard && navigator.clipboard.writeText(host); };
+      document.getElementById('botIdOut').textContent = botId || '—';
+      document.getElementById('originOut').textContent = originFull;
+      document.getElementById('currentPageUrl').textContent = window.location.href;
+      document.getElementById('currentPageUrl').onclick = function() { navigator.clipboard && navigator.clipboard.writeText(window.location.href); };
+
+      if (!redirectUri || !botId) {
+        document.getElementById('msg').textContent = 'Ошибка: не указаны redirect_uri или bot_id.';
+        return;
+      }
+      var origin = window.location.origin;
+      var returnTo = origin + '/telegram-callback.html?redirect_uri=' + encodeURIComponent(redirectUri);
+      var authUrl = 'https://oauth.telegram.org/auth?' + new URLSearchParams({
+        bot_id: botId,
+        origin: origin,
+        return_to: returnTo,
+        request_access: 'write',
+        embed: '0'
+      }).toString();
+      // Обычный переход по ссылке надёжнее передаёт Referer, чем location.replace (Telegram проверяет домен по Referer).
+      document.getElementById('goBtn').href = authUrl;
+    })();
+  </script>
+</body>
+</html>

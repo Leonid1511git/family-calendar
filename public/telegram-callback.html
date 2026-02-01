@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Вход выполнен</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+  <p id="msg">Возврат в приложение…</p>
+  <p id="linkRow" style="display:none; margin-top:1em;">
+    <a id="openApp" href="#" style="font-size:18px; display:inline-block; padding:10px 20px; background:#0088cc; color:#fff; text-decoration:none; border-radius:8px;">Открыть приложение</a>
+  </p>
+  <p id="hint" style="display:none; font-size:14px; color:#666; margin-top:8px;">Важно: нажмите кнопку выше, чтобы вернуться в приложение с данными входа. Если просто свернёте браузер — вход не завершится.</p>
+  <script>
+    (function() {
+      var params = new URLSearchParams(window.location.search);
+      var redirectUri = params.get('redirect_uri');
+      if (!redirectUri) {
+        document.getElementById('msg').textContent = 'Ошибка: не указан redirect_uri.';
+        return;
+      }
+      // Telegram возвращает данные в hash; если пусто — пробуем query
+      var authParams = new URLSearchParams(window.location.hash.slice(1));
+      if (authParams.toString() === '') {
+        authParams = new URLSearchParams(window.location.search);
+        ['redirect_uri'].forEach(function(k) { authParams.delete(k); });
+      }
+      // Редирект в приложение: параметры в фрагменте (#), т.к. при открытии
+      // exp:// из внешнего браузера query часто теряется (iOS/Android).
+      var appUrl = redirectUri + '#' + authParams.toString();
+      document.getElementById('openApp').href = appUrl;
+      window.location.replace(appUrl);
+      setTimeout(function() {
+        document.getElementById('msg').textContent = 'Если приложение не открылось само, нажмите кнопку ниже:';
+        document.getElementById('linkRow').style.display = 'block';
+        document.getElementById('hint').style.display = 'block';
+      }, 1500);
+    })();
+  </script>
+</body>
+</html>
