@@ -1,10 +1,12 @@
 import React from 'react';
+import { View, StyleSheet } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { CalendarPageLoader } from '../components';
 
 // Screens
 import AuthScreen from '../screens/AuthScreen';
@@ -113,7 +115,11 @@ export default function AppNavigator() {
   const { colors } = useTheme();
 
   if (isLoading) {
-    return null;
+    return (
+      <View style={[styles.loaderScreen, { backgroundColor: colors.background }]}>
+        <CalendarPageLoader />
+      </View>
+    );
   }
 
   return (
@@ -133,3 +139,11 @@ export default function AppNavigator() {
     </RootStack.Navigator>
   );
 }
+
+const styles = StyleSheet.create({
+  loaderScreen: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+});

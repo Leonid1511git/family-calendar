@@ -18,6 +18,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useEvents } from '../context/EventsContext';
 import { useAuth } from '../context/AuthContext';
 import { Toast } from '../components/Toast';
+import { CalendarPageLoader } from '../components';
 import { DEFAULT_PARTICIPANTS } from '../constants/participants';
 
 export default function EventDetailsScreen() {
@@ -368,6 +369,7 @@ export default function EventDetailsScreen() {
   return (
     <View style={styles.container}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
+      {isDeleting && <CalendarPageLoader fullScreen />}
       
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Header */}

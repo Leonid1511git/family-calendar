@@ -5,10 +5,10 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
-  ScrollView,
   Switch,
   Platform,
   Alert,
+  Keyboard,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { useEvents } from '../context/EventsContext';
 import { useAuth } from '../context/AuthContext';
+import { CalendarPageLoader } from '../components';
 import { EventColor, RecurrenceRule, ReminderTime, Participant } from '../types';
 import { REMINDER_OPTIONS } from '../services/notificationService';
 import { DEFAULT_PARTICIPANTS } from '../constants/participants';
@@ -60,6 +61,7 @@ export default function EditEventScreen() {
   const [showRecurrencePicker, setShowRecurrencePicker] = useState(false);
   const [showReminderPicker, setShowReminderPicker] = useState(false);
   const [showDurationPicker, setShowDurationPicker] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Load event data
   useEffect(() => {
@@ -118,6 +120,7 @@ export default function EditEventScreen() {
       return;
     }
 
+    setIsSaving(true);
     try {
       await updateEvent(eventId!, {
         title: title.trim(),
@@ -138,6 +141,8 @@ export default function EditEventScreen() {
     } catch (error) {
       Alert.alert('Ошибка', 'Не удалось обновить событие');
       console.error(error);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -215,39 +220,63 @@ export default function EditEventScreen() {
     },
     scrollContent: {
       padding: Spacing.md,
+      flexGrow: 1,
     },
     inputGroup: {
-      marginBottom: Spacing.lg,
+      marginBottom: Spacing.md,
+    },
+    inputGroupCompact: {
+      flex: 1,
+    },
+    dateTimeRow: {
+      flexDirection: 'row',
+      gap: Spacing.sm,
+      marginBottom: Spacing.md,
+    },
+    dateTimeButtonCompact: {
+      backgroundColor: colors.surface,
+      paddingVertical: Spacing.sm,
+      paddingHorizontal: Spacing.sm,
+      borderRadius: BorderRadius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      minHeight: 44,
+      justifyContent: 'center',
+    },
+    dateTimeValueCompact: {
+      fontSize: FontSize.sm,
+      color: colors.text,
+      fontWeight: FontWeight.medium,
     },
     label: {
-      fontSize: FontSize.sm,
+      fontSize: FontSize.xs,
       fontWeight: FontWeight.medium,
       color: colors.textSecondary,
-      marginBottom: Spacing.sm,
+      marginBottom: Spacing.xs,
       textTransform: 'uppercase',
     },
     input: {
       backgroundColor: colors.surface,
       borderRadius: BorderRadius.lg,
-      padding: Spacing.md,
+      paddingVertical: Spacing.sm,
+      paddingHorizontal: Spacing.md,
       fontSize: FontSize.md,
       color: colors.text,
       borderWidth: 1,
       borderColor: colors.border,
-    },
-    textArea: {
-      height: 100,
-      textAlignVertical: 'top',
+      minHeight: 44,
     },
     switchContainer: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       backgroundColor: colors.surface,
-      padding: Spacing.md,
+      paddingVertical: Spacing.sm,
+      paddingHorizontal: Spacing.md,
       borderRadius: BorderRadius.lg,
       borderWidth: 1,
       borderColor: colors.border,
+      minHeight: 44,
     },
     switchLabel: {
       fontSize: FontSize.md,
@@ -339,13 +368,15 @@ export default function EditEventScreen() {
     },
     pickerButton: {
       backgroundColor: colors.surface,
-      padding: Spacing.md,
+      paddingVertical: Spacing.sm,
+      paddingHorizontal: Spacing.md,
       borderRadius: BorderRadius.lg,
       borderWidth: 1,
       borderColor: colors.border,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
+      minHeight: 44,
     },
     pickerText: {
       fontSize: FontSize.md,
@@ -360,7 +391,8 @@ export default function EditEventScreen() {
       overflow: 'hidden',
     },
     pickerOption: {
-      padding: Spacing.md,
+      paddingVertical: Spacing.sm,
+      paddingHorizontal: Spacing.md,
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
     },
@@ -377,11 +409,11 @@ export default function EditEventScreen() {
     },
     saveButton: {
       backgroundColor: colors.primary,
-      padding: Spacing.md,
+      paddingVertical: Spacing.md,
+      paddingHorizontal: Spacing.lg,
       borderRadius: BorderRadius.lg,
       alignItems: 'center',
-      marginTop: Spacing.lg,
-      marginBottom: Spacing.xl,
+      marginTop: Spacing.md,
     },
     saveButtonDisabled: {
       opacity: 0.5,
@@ -396,8 +428,9 @@ export default function EditEventScreen() {
   return (
     <View style={styles.container}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
+      {isSaving && <CalendarPageLoader fullScreen />}
       
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <View style={styles.scrollContent}>
         {/* Title */}
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Название</Text>
@@ -407,20 +440,6 @@ export default function EditEventScreen() {
             onChangeText={setTitle}
             placeholder="Название события"
             placeholderTextColor={colors.textTertiary}
-          />
-        </View>
-
-        {/* Description */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Описание</Text>
-          <TextInput
-            style={[styles.input, styles.textArea]}
-            value={description}
-            onChangeText={setDescription}
-            placeholder="Добавьте описание..."
-            placeholderTextColor={colors.textTertiary}
-            multiline
-            numberOfLines={4}
           />
         </View>
 
@@ -437,28 +456,39 @@ export default function EditEventScreen() {
           </View>
         </View>
 
-        {/* Start Date/Time */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Начало</Text>
-          <View style={styles.dateTimeContainer}>
+        {/* Start & End Date/Time — одна строка */}
+        <View style={styles.dateTimeRow}>
+          <View style={styles.inputGroupCompact}>
+            <Text style={styles.label}>Начало</Text>
             <TouchableOpacity
-              style={styles.dateTimeButton}
-              onPress={() => setShowStartDatePicker(true)}
+              style={styles.dateTimeButtonCompact}
+              onPress={() => { Keyboard.dismiss(); setShowStartDatePicker(true); }}
             >
-              <Text style={styles.dateTimeLabel}>Дата</Text>
-              <Text style={styles.dateTimeValue}>
-                {format(startDate, 'dd.MM.yyyy')}
-              </Text>
+              <Text style={styles.dateTimeValueCompact}>{format(startDate, 'dd.MM.yy')}</Text>
             </TouchableOpacity>
             {!allDay && (
               <TouchableOpacity
-                style={styles.dateTimeButton}
-                onPress={() => setShowStartTimePicker(true)}
+                style={styles.dateTimeButtonCompact}
+                onPress={() => { Keyboard.dismiss(); setShowStartTimePicker(true); }}
               >
-                <Text style={styles.dateTimeLabel}>Время</Text>
-                <Text style={styles.dateTimeValue}>
-                  {format(startDate, 'HH:mm')}
-                </Text>
+                <Text style={styles.dateTimeValueCompact}>{format(startDate, 'HH:mm')}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <View style={styles.inputGroupCompact}>
+            <Text style={styles.label}>Окончание</Text>
+            <TouchableOpacity
+              style={styles.dateTimeButtonCompact}
+              onPress={() => { Keyboard.dismiss(); setShowEndDatePicker(true); }}
+            >
+              <Text style={styles.dateTimeValueCompact}>{format(endDate, 'dd.MM.yy')}</Text>
+            </TouchableOpacity>
+            {!allDay && (
+              <TouchableOpacity
+                style={styles.dateTimeButtonCompact}
+                onPress={() => { Keyboard.dismiss(); setShowEndTimePicker(true); }}
+              >
+                <Text style={styles.dateTimeValueCompact}>{format(endDate, 'HH:mm')}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -470,7 +500,7 @@ export default function EditEventScreen() {
             <Text style={styles.label}>Продолжительность</Text>
             <TouchableOpacity
               style={styles.pickerButton}
-              onPress={() => setShowDurationPicker(!showDurationPicker)}
+              onPress={() => { Keyboard.dismiss(); setShowDurationPicker(!showDurationPicker); }}
             >
               <Text style={styles.pickerText}>
                 {duration === 15 ? '15 минут' :
@@ -499,6 +529,7 @@ export default function EditEventScreen() {
                       duration === mins && styles.pickerOptionSelected,
                     ]}
                     onPress={() => {
+                      Keyboard.dismiss();
                       setDuration(mins);
                       setShowDurationPicker(false);
                     }}
@@ -525,45 +556,6 @@ export default function EditEventScreen() {
           </View>
         )}
 
-        {/* End Date/Time */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Окончание</Text>
-          <View style={styles.dateTimeContainer}>
-            <TouchableOpacity
-              style={styles.dateTimeButton}
-              onPress={() => setShowEndDatePicker(true)}
-            >
-              <Text style={styles.dateTimeLabel}>Дата</Text>
-              <Text style={styles.dateTimeValue}>
-                {format(endDate, 'dd.MM.yyyy')}
-              </Text>
-            </TouchableOpacity>
-            {!allDay && (
-              <TouchableOpacity
-                style={styles.dateTimeButton}
-                onPress={() => setShowEndTimePicker(true)}
-              >
-                <Text style={styles.dateTimeLabel}>Время</Text>
-                <Text style={styles.dateTimeValue}>
-                  {format(endDate, 'HH:mm')}
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-
-        {/* Location */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Место</Text>
-          <TextInput
-            style={styles.input}
-            value={location}
-            onChangeText={setLocation}
-            placeholder="Добавьте место..."
-            placeholderTextColor={colors.textTertiary}
-          />
-        </View>
-
         {/* Participants */}
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Участники</Text>
@@ -578,7 +570,7 @@ export default function EditEventScreen() {
                     isSelected && styles.participantTagSelected,
                     isSelected && { backgroundColor: participant.color + '20', borderColor: participant.color }
                   ]}
-                  onPress={() => toggleParticipant(participant)}
+                  onPress={() => { Keyboard.dismiss(); toggleParticipant(participant); }}
                 >
                   <View style={[
                     styles.participantAvatarSmall,
@@ -606,7 +598,7 @@ export default function EditEventScreen() {
           <Text style={styles.label}>Повторение</Text>
           <TouchableOpacity
             style={styles.pickerButton}
-            onPress={() => setShowRecurrencePicker(!showRecurrencePicker)}
+            onPress={() => { Keyboard.dismiss(); setShowRecurrencePicker(!showRecurrencePicker); }}
           >
             <Text style={styles.pickerText}>
               {RECURRENCE_OPTIONS.find(o => 
@@ -631,6 +623,7 @@ export default function EditEventScreen() {
                       styles.pickerOptionSelected,
                   ]}
                   onPress={() => {
+                    Keyboard.dismiss();
                     setRecurrence(option.value);
                     setShowRecurrencePicker(false);
                   }}
@@ -655,7 +648,7 @@ export default function EditEventScreen() {
           <Text style={styles.label}>Напоминание</Text>
           <TouchableOpacity
             style={styles.pickerButton}
-            onPress={() => setShowReminderPicker(!showReminderPicker)}
+            onPress={() => { Keyboard.dismiss(); setShowReminderPicker(!showReminderPicker); }}
           >
             <Text style={styles.pickerText}>
               {REMINDER_OPTIONS.find(o => o.value === reminderTime)?.label || 'За 3 дня'}
@@ -677,6 +670,7 @@ export default function EditEventScreen() {
                     reminderTime === option.value && styles.pickerOptionSelected,
                   ]}
                   onPress={() => {
+                    Keyboard.dismiss();
                     setReminderTime(option.value);
                     setShowReminderPicker(false);
                   }}
@@ -698,12 +692,12 @@ export default function EditEventScreen() {
         {/* Save Button */}
         <TouchableOpacity
           style={[styles.saveButton, !title.trim() && styles.saveButtonDisabled]}
-          onPress={handleSave}
+          onPress={() => { Keyboard.dismiss(); handleSave(); }}
           disabled={!title.trim()}
         >
           <Text style={styles.saveButtonText}>Сохранить изменения</Text>
         </TouchableOpacity>
-      </ScrollView>
+      </View>
 
       {/* Date/Time Pickers */}
       {showStartDatePicker && (

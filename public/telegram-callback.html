@@ -4,13 +4,39 @@
   <meta charset="utf-8">
   <title>Вход выполнен</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      padding: 24px;
+      max-width: 360px;
+      margin: 0 auto;
+      line-height: 1.5;
+      color: #333;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+    }
+    p { margin: 0 0 20px; text-align: center; color: #666; }
+    .btn {
+      display: inline-block;
+      padding: 12px 24px;
+      background: #0088cc;
+      color: #fff;
+      text-decoration: none;
+      border-radius: 8px;
+      font-weight: 500;
+    }
+    .btn:hover { opacity: 0.9; }
+  </style>
 </head>
 <body>
   <p id="msg">Возврат в приложение…</p>
-  <p id="linkRow" style="display:none; margin-top:1em;">
-    <a id="openApp" href="#" style="font-size:18px; display:inline-block; padding:10px 20px; background:#0088cc; color:#fff; text-decoration:none; border-radius:8px;">Открыть приложение</a>
+  <p id="linkRow" style="display:none;">
+    <a id="openApp" class="btn" href="#">Открыть приложение</a>
   </p>
-  <p id="hint" style="display:none; font-size:14px; color:#666; margin-top:8px;">Важно: нажмите кнопку выше, чтобы вернуться в приложение с данными входа. Если просто свернёте браузер — вход не завершится.</p>
   <script>
     (function() {
       var params = new URLSearchParams(window.location.search);
@@ -19,21 +45,17 @@
         document.getElementById('msg').textContent = 'Ошибка: не указан redirect_uri.';
         return;
       }
-      // Telegram возвращает данные в hash; если пусто — пробуем query
       var authParams = new URLSearchParams(window.location.hash.slice(1));
       if (authParams.toString() === '') {
         authParams = new URLSearchParams(window.location.search);
         ['redirect_uri'].forEach(function(k) { authParams.delete(k); });
       }
-      // Редирект в приложение: параметры в фрагменте (#), т.к. при открытии
-      // exp:// из внешнего браузера query часто теряется (iOS/Android).
       var appUrl = redirectUri + '#' + authParams.toString();
       document.getElementById('openApp').href = appUrl;
       window.location.replace(appUrl);
       setTimeout(function() {
-        document.getElementById('msg').textContent = 'Если приложение не открылось само, нажмите кнопку ниже:';
+        document.getElementById('msg').textContent = '';
         document.getElementById('linkRow').style.display = 'block';
-        document.getElementById('hint').style.display = 'block';
       }, 1500);
     })();
   </script>

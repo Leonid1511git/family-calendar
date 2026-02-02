@@ -10,8 +10,10 @@ npm-debug.*
 *.orig.*
 web-build/
 
-# Telegram bot configuration (contains sensitive tokens)
-src/config/telegram.ts
+# Локальные переменные с токенами (не коммитить)
+.env
+.env.local
+.env.*.local
 
 # Firebase Functions
 functions/lib/

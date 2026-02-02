@@ -212,13 +212,18 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     // Notify group members (Telegram); учитываем настройку «уведомлять о своих действиях»
     if (user && group) {
       const notifyOwnActions = await settingsStorage.getNotifyOwnActions();
+      const start = eventData.startDate instanceof Date ? eventData.startDate : new Date(eventData.startDate);
+      const end = eventData.endDate instanceof Date ? eventData.endDate : new Date(eventData.endDate);
+      const eventDateTime = eventData.allDay
+        ? format(start, 'dd.MM.yyyy')
+        : `${format(start, 'dd.MM.yyyy')}, ${format(start, 'HH:mm')}${start.getTime() !== end.getTime() ? `–${format(end, 'HH:mm')}` : ''}`;
       await notificationService.notifyGroupMembers(
         group.id,
         user.id,
         user.firstName,
         eventData.title,
         newEvent.id,
-        { senderTelegramId: user.telegramId, notifyOwnActions }
+        { senderTelegramId: user.telegramId, notifyOwnActions, eventDateTime }
       );
     }
 
@@ -262,7 +267,7 @@ export function EventsProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    // Notify group members (Telegram) об изменении события — только реально изменившиеся поля
+    // Notify group members (Telegram) об изменении события — только реально изменившиеся поля; дату события показываем всегда
     if (user && group) {
       const notifyOwnActions = await settingsStorage.getNotifyOwnActions();
       const changeDetails: { newTitle?: string; newTime?: string } = {};
@@ -279,13 +284,18 @@ export function EventsProvider({ children }: { children: ReactNode }) {
           ? format(newStart, 'dd.MM.yyyy')
           : format(newStart, 'HH:mm');
       }
+      const start = updatedEvent.startDate instanceof Date ? updatedEvent.startDate : new Date(updatedEvent.startDate);
+      const end = updatedEvent.endDate instanceof Date ? updatedEvent.endDate : new Date(updatedEvent.endDate);
+      const eventDateTime = updatedEvent.allDay
+        ? format(start, 'dd.MM.yyyy')
+        : `${format(start, 'dd.MM.yyyy')}, ${format(start, 'HH:mm')}${start.getTime() !== end.getTime() ? `–${format(end, 'HH:mm')}` : ''}`;
       await notificationService.notifyEventUpdated(
         updatedEvent.groupId || group.id,
         user.id,
         user.firstName,
         event.title,
         id,
-        { senderTelegramId: user.telegramId, notifyOwnActions, changeDetails: Object.keys(changeDetails).length > 0 ? changeDetails : undefined }
+        { senderTelegramId: user.telegramId, notifyOwnActions, changeDetails: Object.keys(changeDetails).length > 0 ? changeDetails : undefined, eventDateTime }
       );
     }
 

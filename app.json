@@ -5,7 +5,9 @@
     "version": "2.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
+    "icon": "./assets/icon.png",
     "splash": {
+      "image": "./assets/icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -31,7 +33,8 @@
       "package": "com.familycalendar.app",
       "versionCode": 2,
       "adaptiveIcon": {
-        "backgroundColor": "#FFFFFF"
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#007AFF"
       },
       "permissions": [
         "READ_CALENDAR",

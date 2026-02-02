@@ -68,14 +68,14 @@ class NotificationService {
     }
   }
 
-  /** options.notifyOwnActions: если false, отправитель не получит уведомление. options.senderTelegramId — Telegram ID отправителя. */
+  /** options.notifyOwnActions: если false, отправитель не получит уведомление. options.senderTelegramId — Telegram ID отправителя. options.eventDateTime — дата и время события для текста. */
   async notifyGroupMembers(
     groupId: string,
     senderId: string,
     senderName: string,
     eventTitle: string,
     eventId: string,
-    options?: { senderTelegramId?: string; notifyOwnActions?: boolean }
+    options?: { senderTelegramId?: string; notifyOwnActions?: boolean; eventDateTime?: string }
   ) {
     try {
       let telegramIds = await getGroupTelegramIds(groupId);
@@ -84,11 +84,14 @@ class NotificationService {
       }
       if (telegramIds.length === 0) return;
 
+      let message = `${senderName} добавил: ${eventTitle}`;
+      if (options?.eventDateTime) message += `\n${options.eventDateTime}`;
+
       const notificationsRef = collection(db, 'telegram_notifications');
       await setDoc(doc(notificationsRef), {
         telegramUserIds: telegramIds,
         title: 'Новое событие',
-        message: `${senderName} добавил: ${eventTitle}`,
+        message,
         data: { eventId, groupId, type: 'new_event', senderId },
         createdAt: Timestamp.now(),
         status: 'pending',
@@ -98,14 +101,14 @@ class NotificationService {
     }
   }
 
-  /** changeDetails: суть изменений для текста уведомления (новое название, новое время). */
+  /** changeDetails: суть изменений для текста уведомления (новое название, новое время). eventDateTime: дата события (всегда показываем). */
   async notifyEventUpdated(
     groupId: string,
     senderId: string,
     senderName: string,
     eventTitle: string,
     eventId: string,
-    options?: { senderTelegramId?: string; notifyOwnActions?: boolean; changeDetails?: { newTitle?: string; newTime?: string } }
+    options?: { senderTelegramId?: string; notifyOwnActions?: boolean; changeDetails?: { newTitle?: string; newTime?: string }; eventDateTime?: string }
   ) {
     try {
       let telegramIds = await getGroupTelegramIds(groupId);
@@ -115,6 +118,7 @@ class NotificationService {
       if (telegramIds.length === 0) return;
 
       let message = `${senderName} изменил: ${eventTitle}`;
+      if (options?.eventDateTime) message += `\nДата: ${options.eventDateTime}`;
       const details = options?.changeDetails;
       if (details?.newTitle) message += `\nНовое название - ${details.newTitle}`;
       if (details?.newTime) message += `\nНовое время - ${details.newTime}`;

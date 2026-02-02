@@ -5,6 +5,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
+  FlatList,
   Dimensions,
   PanResponder,
   Animated,
@@ -15,7 +16,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addWeeks, subWeeks, addDays, subDays, startOfDay } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { Ionicons } from '@expo/vector-icons';
-import { GestureHandlerRootView, PanGestureHandler } from 'react-native-gesture-handler';
+import { GestureHandlerRootView, PanGestureHandler, ScrollView as GHScrollView } from 'react-native-gesture-handler';
 
 import { useTheme } from '../context/ThemeContext';
 import { useEvents } from '../context/EventsContext';
@@ -35,7 +36,7 @@ export default function CalendarScreen() {
   const [viewMode, setViewMode] = useState<CalendarViewMode>('week');
   const [weekOffset, setWeekOffset] = useState(0); // 0 = current week, 1 = next week, -1 = previous week
   const translateX = useRef(new Animated.Value(0)).current;
-  const weekScrollViewRef = useRef<ScrollView>(null);
+  const weekFlatListRef = useRef<FlatList>(null);
 
   // Get events for the selected date
   const selectedDateEvents = events.filter(event => 
@@ -223,12 +224,9 @@ export default function CalendarScreen() {
 
   // Scroll to start of week on mount or when week changes
   useEffect(() => {
-    if (viewMode === 'week' && weekScrollViewRef.current) {
+    if (viewMode === 'week' && weekFlatListRef.current) {
       setTimeout(() => {
-        weekScrollViewRef.current?.scrollTo({
-          x: 0,
-          animated: false,
-        });
+        weekFlatListRef.current?.scrollToOffset({ offset: 0, animated: false });
       }, 100);
     }
   }, [viewMode, weekOffset]);
@@ -293,67 +291,79 @@ export default function CalendarScreen() {
       );
     };
 
+    const dayColumnWidth = SCREEN_WIDTH / 3;
+    const totalContentWidth = weekDays.length * dayColumnWidth;
+    // #region agent log
+    __DEV__ && fetch('http://127.0.0.1:7242/ingest/7f9949bb-083d-4b4a-87ed-e303213be9b4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CalendarScreen.tsx:renderWeekView',message:'week FlatList data',data:{weekDaysLength:weekDays.length,dayColumnWidth,SCREEN_WIDTH,totalContentWidth,canScroll:totalContentWidth>SCREEN_WIDTH},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
+    // #endregion
+    const renderDayColumn = ({ item: day, index }: { item: Date; index: number }) => {
+      const dayEvents = getDayEvents(day);
+      const hasEvents = dayEvents.length > 0;
+      return (
+        <View style={[styles.weekDayColumn, { width: dayColumnWidth }]}>
+          <View style={styles.weekDayHeader}>
+            <Text style={[styles.weekDayName, { color: colors.textSecondary }]}>
+              {format(day, 'EEE', { locale: ru })}
+            </Text>
+            <Text style={[styles.weekDayNumber, { color: colors.text }]}>
+              {format(day, 'd')}
+            </Text>
+            <View style={styles.eventDotContainer}>
+              {hasEvents && (
+                <View style={[styles.eventDot, { backgroundColor: colors.primary }]} />
+              )}
+            </View>
+          </View>
+          <GHScrollView
+            style={styles.weekDayEvents}
+            contentContainerStyle={styles.weekDayEventsContent}
+            showsVerticalScrollIndicator={false}
+            nestedScrollEnabled={true}
+            horizontal={false}
+          >
+            {dayEvents.length === 0 ? (
+              <View style={styles.weekEmptyState}>
+                <Text style={[styles.weekEmptyStateText, { color: colors.textTertiary }]}>
+                  Нет событий
+                </Text>
+              </View>
+            ) : (
+              dayEvents.map(renderEventCard)
+            )}
+          </GHScrollView>
+        </View>
+      );
+    };
+
     return (
-      <View style={styles.weekViewContainer} {...panResponder.panHandlers}>
-        {/* Scrollable week with events - showing 3 days at a time */}
-        <ScrollView 
-          ref={weekScrollViewRef}
-          horizontal 
-          showsHorizontalScrollIndicator={false}
+      <View style={styles.weekViewContainer}>
+        <FlatList
+          ref={weekFlatListRef}
+          data={weekDays}
+          keyExtractor={(_, index) => String(index)}
+          renderItem={renderDayColumn}
+          horizontal
+          showsHorizontalScrollIndicator={true}
           contentContainerStyle={styles.weekScrollContent}
           style={styles.weekScrollView}
-        >
-          {weekDays.map((day, index) => {
-            const dayEvents = getDayEvents(day);
-            const hasEvents = dayEvents.length > 0;
-
-            return (
-              <View
-                key={index}
-                style={[
-                  styles.weekDayColumn,
-                  { width: SCREEN_WIDTH / 3 }
-                ]}
-              >
-                {/* Day header */}
-                <View style={styles.weekDayHeader}>
-                  <Text style={[
-                    styles.weekDayName,
-                    { color: colors.textSecondary },
-                  ]}>
-                    {format(day, 'EEE', { locale: ru })}
-                  </Text>
-                  <Text style={[
-                    styles.weekDayNumber,
-                    { color: colors.text },
-                  ]}>
-                    {format(day, 'd')}
-                  </Text>
-                  {hasEvents && (
-                    <View style={[styles.eventDot, { backgroundColor: colors.primary }]} />
-                  )}
-                </View>
-                
-                {/* Events for this day */}
-                <ScrollView 
-                  style={styles.weekDayEvents}
-                  contentContainerStyle={styles.weekDayEventsContent}
-                  showsVerticalScrollIndicator={false}
-                >
-                  {dayEvents.length === 0 ? (
-                    <View style={styles.weekEmptyState} {...panResponder.panHandlers}>
-                      <Text style={[styles.weekEmptyStateText, { color: colors.textTertiary }]}>
-                        Нет событий
-                      </Text>
-                    </View>
-                  ) : (
-                    dayEvents.map(renderEventCard)
-                  )}
-                </ScrollView>
-              </View>
-            );
+          getItemLayout={(_: any, index: number) => ({
+            length: dayColumnWidth,
+            offset: dayColumnWidth * index,
+            index,
           })}
-        </ScrollView>
+          onScrollBeginDrag={() => {
+            // #region agent log
+            __DEV__ && fetch('http://127.0.0.1:7242/ingest/7f9949bb-083d-4b4a-87ed-e303213be9b4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CalendarScreen.tsx:FlatList.onScrollBeginDrag',message:'horizontal scroll started',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+            // #endregion
+          }}
+          onScroll={(e) => {
+            const x = e.nativeEvent.contentOffset.x;
+            // #region agent log
+            __DEV__ && fetch('http://127.0.0.1:7242/ingest/7f9949bb-083d-4b4a-87ed-e303213be9b4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CalendarScreen.tsx:FlatList.onScroll',message:'scroll offset',data:{contentOffsetX:x},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
+            // #endregion
+          }}
+          scrollEventThrottle={200}
+        />
       </View>
     );
   };
@@ -614,6 +624,7 @@ export default function CalendarScreen() {
       paddingHorizontal: Spacing.xs,
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
+      height: 60,
       minHeight: 60,
     },
     weekDayName: {
@@ -625,11 +636,16 @@ export default function CalendarScreen() {
       fontSize: FontSize.md,
       fontWeight: FontWeight.semibold,
     },
+    eventDotContainer: {
+      height: 4,
+      marginTop: Spacing.xs,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
     eventDot: {
       width: 4,
       height: 4,
       borderRadius: 2,
-      marginTop: Spacing.xs,
     },
     weekDayEvents: {
       flex: 1,

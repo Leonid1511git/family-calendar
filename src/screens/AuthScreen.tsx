@@ -17,13 +17,14 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { Spacing, BorderRadius, FontSize, FontWeight } from '../constants/theme';
 import { parseTelegramAuthUrl } from '../utils/telegramAuth';
+import { CalendarPageLoader } from '../components';
 
 import { TELEGRAM_CONFIG } from '../config/telegram';
 
 WebBrowser.maybeCompleteAuthSession();
 
 export default function AuthScreen() {
-  const { login, lastRedirectUrl, lastRedirectParseOk, lastLoginError } = useAuth();
+  const { login, isLoggingIn } = useAuth();
   const { colors, isDark } = useTheme();
   const [isLoading, setIsLoading] = useState(false);
 
@@ -81,6 +82,13 @@ export default function AuthScreen() {
 
   // Telegram Login: открываем внешний браузер, возврат в приложение по deep link
   const handleTelegramLogin = async () => {
+    if (!TELEGRAM_CONFIG.BOT_TOKEN?.trim()) {
+      Alert.alert(
+        'Не настроен вход через Telegram',
+        'Токен бота не задан. Добавьте переменную EXPO_PUBLIC_TELEGRAM_BOT_TOKEN в EAS (Environment variables) и пересоберите приложение.'
+      );
+      return;
+    }
     setIsLoading(true);
     try {
       const redirectUri = AuthSession.makeRedirectUri({
@@ -98,7 +106,8 @@ export default function AuthScreen() {
       __DEV__ && fetch('http://127.0.0.1:7242/ingest/7f9949bb-083d-4b4a-87ed-e303213be9b4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthScreen.tsx:handleTelegramLogin',message:'Opening Telegram login',data:{AUTH_PROXY_URL:proxyUrl,redirectUri,authUrlLength:authUrl.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
       // #endregion
 
-      await Linking.openURL(authUrl);
+      // На Android release Linking.openURL иногда не открывает браузер — используем WebBrowser
+      await WebBrowser.openBrowserAsync(authUrl, { createTask: true });
       // Открыт внешний браузер. После входа в Telegram пользователь попадёт на страницу
       // «Возврат в приложение» и по ссылке вернётся в приложение — обработают
       // useFocusEffect и AuthContext (getInitialURL / url event).
@@ -198,36 +207,12 @@ export default function AuthScreen() {
       color: colors.textTertiary,
       textAlign: 'center',
     },
-    debugBox: {
-      marginTop: Spacing.xl,
-      padding: Spacing.md,
-      borderRadius: BorderRadius.lg,
-      borderWidth: 1,
-      width: '100%',
-      maxWidth: 320,
-    },
-    debugTitle: {
-      fontSize: FontSize.sm,
-      fontWeight: FontWeight.semibold,
-      marginBottom: Spacing.xs,
-    },
-    debugLabel: {
-      fontSize: 12,
-      marginBottom: 2,
-    },
-    debugUrl: {
-      fontSize: 11,
-      fontFamily: 'monospace',
-      marginBottom: Spacing.xs,
-    },
-    debugText: {
-      fontSize: FontSize.sm,
-    },
   });
 
   return (
     <View style={styles.container}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
+      {(isLoading || isLoggingIn) && <CalendarPageLoader fullScreen />}
       
       <View style={styles.logoContainer}>
         <View style={styles.logo}>
@@ -275,36 +260,6 @@ export default function AuthScreen() {
           и сможете видеть события всех участников
         </Text>
       </View>
-
-      {/* Диагностика входа — только в режиме разработки */}
-      {__DEV__ && (
-        <View style={[styles.debugBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Text style={[styles.debugTitle, { color: colors.text }]}>Диагностика входа</Text>
-          {lastRedirectUrl == null ? (
-            <Text style={[styles.debugText, { color: colors.textSecondary }]}>
-              Ссылка не получена. После «Перейти к Telegram» и входа откройте приложение по ссылке «Открыть приложение» на странице в браузере.
-            </Text>
-          ) : (
-            <>
-              <Text style={[styles.debugLabel, { color: colors.textSecondary }]}>Полученная ссылка:</Text>
-              <Text style={[styles.debugUrl, { color: colors.text }]} numberOfLines={2} selectable>
-                {lastRedirectUrl}
-              </Text>
-              <Text style={[styles.debugText, { color: lastRedirectParseOk ? colors.primary : colors.error }]}>
-                {lastRedirectParseOk ? 'Парсинг: ок, вход должен был выполниться' : 'Парсинг: не ок (нет id/hash/auth_date в ссылке)'}
-              </Text>
-              {lastLoginError ? (
-                <>
-                  <Text style={[styles.debugLabel, { color: colors.textSecondary, marginTop: Spacing.sm }]}>Ошибка входа:</Text>
-                  <Text style={[styles.debugText, { color: colors.error }]} selectable>
-                    {lastLoginError}
-                  </Text>
-                </>
-              ) : null}
-            </>
-          )}
-        </View>
-      )}
     </View>
   );
 }

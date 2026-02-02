@@ -12,6 +12,8 @@ type AuthContextType = {
   user: User | null;
   group: Group | null;
   isLoading: boolean;
+  /** Идёт процесс входа (getToken, signIn и т.д.) — показывать лоадер на экране входа */
+  isLoggingIn: boolean;
   isAuthenticated: boolean;
   login: (userData: Omit<User, 'id' | 'createdAt'>) => Promise<void>;
   logout: () => Promise<void>;
@@ -35,6 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [group, setGroup] = useState<Group | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [lastRedirectUrl, setLastRedirectUrl] = useState<string | null>(null);
   const [lastRedirectParseOk, setLastRedirectParseOk] = useState<boolean | null>(null);
   const [lastLoginError, setLastLoginError] = useState<string | null>(null);
@@ -144,6 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (userData: Omit<User, 'id' | 'createdAt'>) => {
     setLastLoginError(null);
+    setIsLoggingIn(true);
     try {
       const payload = userData as TelegramAuthPayload;
       const hasTelegramVerify = payload.hash != null && payload.authDate != null;
@@ -342,6 +346,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // #endregion
       console.error('Error saving user:', error);
       throw error;
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -427,6 +433,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         group,
         isLoading,
+        isLoggingIn,
         isAuthenticated: !!user,
         login,
         logout,
