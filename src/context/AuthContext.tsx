@@ -31,7 +31,8 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const USER_STORAGE_KEY = '@family_calendar_user';
 const GROUP_STORAGE_KEY = '@family_calendar_group';
-const DEFAULT_GROUP_ID = 'default-family-group';
+/** Должен совпадать с Cloud Function (functions/src/index.ts): одна группа «Семья» на всех. */
+const DEFAULT_GROUP_ID = 'default-family';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -236,10 +237,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         __DEV__ && fetch('http://127.0.0.1:7242/ingest/7f9949bb-083d-4b4a-87ed-e303213be9b4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.tsx:120',message:'Updating existing user',data:{userId:existingUser.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
         // #endregion
         
-        // Update existing user
+        // В fallback всегда привязываем к общей группе «Семья», чтобы видеть события друг друга
         const updatedUser = {
           ...existingUser,
           ...userData,
+          currentGroupId: DEFAULT_GROUP_ID,
         };
         await usersStorage.update(existingUser.id, updatedUser);
         localUser = updatedUser;
@@ -257,19 +259,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
       } else {
         // #region agent log
-        __DEV__ && fetch('http://127.0.0.1:7242/ingest/7f9949bb-083d-4b4a-87ed-e303213be9b4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.tsx:130',message:'Creating new user - creating default group',data:{timestamp:Date.now()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+        __DEV__ && fetch('http://127.0.0.1:7242/ingest/7f9949bb-083d-4b4a-87ed-e303213be9b4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.tsx:130',message:'Creating new user - using default group',data:{timestamp:Date.now()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
         // #endregion
         
-        // Create new user first (we need userId for group creation)
+        // Новый пользователь в fallback — привязываем к общей группе «Семья» (default-family), как в Cloud Function
         const now = new Date();
         const userId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        
-        // Create default group
-        const defaultGroup = await createDefaultGroup(userId);
-        
-        // #region agent log
-        __DEV__ && fetch('http://127.0.0.1:7242/ingest/7f9949bb-083d-4b4a-87ed-e303213be9b4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.tsx:140',message:'Default group created',data:{groupId:defaultGroup.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
         
         localUser = {
           id: userId,
@@ -278,7 +273,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           firstName: userData.firstName,
           lastName: userData.lastName,
           avatarUrl: userData.avatarUrl,
-          currentGroupId: defaultGroup.id,
+          currentGroupId: DEFAULT_GROUP_ID,
           role: 'admin',
           createdAt: now,
         };
@@ -311,12 +306,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(localUser);
       await AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(localUser));
 
-      // Load group
+      // Load group (локально или из Firestore для default-family)
       // #region agent log
       __DEV__ && fetch('http://127.0.0.1:7242/ingest/7f9949bb-083d-4b4a-87ed-e303213be9b4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.tsx:163',message:'Loading group',data:{groupId:localUser.currentGroupId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
       // #endregion
       
-      const userGroup = await groupsStorage.findById(localUser.currentGroupId);
+      let userGroup = await groupsStorage.findById(localUser.currentGroupId);
+      if (!userGroup && localUser.currentGroupId === DEFAULT_GROUP_ID) {
+        const firestoreGroup = await getGroupFromFirestore(DEFAULT_GROUP_ID);
+        if (firestoreGroup) {
+          const groupForApp: Group = {
+            id: firestoreGroup.id,
+            name: firestoreGroup.name,
+            createdBy: firestoreGroup.createdBy,
+            createdAt: firestoreGroup.createdAt,
+            members: firestoreGroup.members.map((m) => ({ userId: m.userId, role: m.role as 'admin' | 'member', joinedAt: m.joinedAt })),
+            isDefault: firestoreGroup.isDefault,
+          };
+          await groupsStorage.add(groupForApp);
+          userGroup = groupForApp;
+        } else {
+          userGroup = {
+            id: DEFAULT_GROUP_ID,
+            name: 'Семья',
+            createdBy: '',
+            createdAt: new Date(),
+            members: [],
+            isDefault: true,
+          };
+          await groupsStorage.add(userGroup);
+        }
+      }
       
       // #region agent log
       __DEV__ && fetch('http://127.0.0.1:7242/ingest/7f9949bb-083d-4b4a-87ed-e303213be9b4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.tsx:166',message:'Group loaded',data:{found:!!userGroup},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
