@@ -16,7 +16,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.familycalendar.app",
+      "bundleIdentifier": "com.leonid.familycalendar.app",
       "buildNumber": "2.0.0",
       "infoPlist": {
         "NSCalendarsUsageDescription": "Приложению нужен доступ к календарю для создания событий",
