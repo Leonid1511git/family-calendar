@@ -9,6 +9,7 @@ import {
   Platform,
   Alert,
   Keyboard,
+  Modal,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -699,43 +700,64 @@ export default function EditEventScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Date/Time Pickers */}
-      {showStartDatePicker && (
-        <DateTimePicker
-          value={startDate}
-          mode="date"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={onStartDateChange}
-          locale="ru-RU"
-        />
-      )}
-      {showStartTimePicker && (
-        <DateTimePicker
-          value={startDate}
-          mode="time"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={onStartTimeChange}
-          locale="ru-RU"
-        />
-      )}
-      {showEndDatePicker && (
-        <DateTimePicker
-          value={endDate}
-          mode="date"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={onEndDateChange}
-          locale="ru-RU"
-          minimumDate={startDate}
-        />
-      )}
-      {showEndTimePicker && (
-        <DateTimePicker
-          value={endDate}
-          mode="time"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={onEndTimeChange}
-          locale="ru-RU"
-        />
+      {/* Date/Time Pickers — на iOS в Modal с кнопкой «Готово» */}
+      {Platform.OS === 'ios' ? (
+        (showStartDatePicker || showStartTimePicker || showEndDatePicker || showEndTimePicker) && (
+          <Modal visible transparent animationType="slide">
+            <TouchableOpacity
+              style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}
+              activeOpacity={1}
+              onPress={() => {
+                setShowStartDatePicker(false);
+                setShowStartTimePicker(false);
+                setShowEndDatePicker(false);
+                setShowEndTimePicker(false);
+              }}
+            >
+              <View style={{ backgroundColor: colors.background, borderTopLeftRadius: 16, borderTopRightRadius: 16 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'flex-end', padding: 12 }}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setShowStartDatePicker(false);
+                      setShowStartTimePicker(false);
+                      setShowEndDatePicker(false);
+                      setShowEndTimePicker(false);
+                    }}
+                  >
+                    <Text style={{ fontSize: 17, color: colors.primary, fontWeight: '600' }}>Готово</Text>
+                  </TouchableOpacity>
+                </View>
+                {showStartDatePicker && (
+                  <DateTimePicker value={startDate} mode="date" display="spinner" onChange={onStartDateChange} locale="ru-RU" />
+                )}
+                {showStartTimePicker && (
+                  <DateTimePicker value={startDate} mode="time" display="spinner" onChange={onStartTimeChange} locale="ru-RU" />
+                )}
+                {showEndDatePicker && (
+                  <DateTimePicker value={endDate} mode="date" display="spinner" onChange={onEndDateChange} locale="ru-RU" minimumDate={startDate} />
+                )}
+                {showEndTimePicker && (
+                  <DateTimePicker value={endDate} mode="time" display="spinner" onChange={onEndTimeChange} locale="ru-RU" />
+                )}
+              </View>
+            </TouchableOpacity>
+          </Modal>
+        )
+      ) : (
+        <>
+          {showStartDatePicker && (
+            <DateTimePicker value={startDate} mode="date" display="default" onChange={onStartDateChange} locale="ru-RU" />
+          )}
+          {showStartTimePicker && (
+            <DateTimePicker value={startDate} mode="time" display="default" onChange={onStartTimeChange} locale="ru-RU" />
+          )}
+          {showEndDatePicker && (
+            <DateTimePicker value={endDate} mode="date" display="default" onChange={onEndDateChange} locale="ru-RU" minimumDate={startDate} />
+          )}
+          {showEndTimePicker && (
+            <DateTimePicker value={endDate} mode="time" display="default" onChange={onEndTimeChange} locale="ru-RU" />
+          )}
+        </>
       )}
     </View>
   );

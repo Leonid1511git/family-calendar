@@ -283,6 +283,14 @@ export default function SettingsScreen() {
                 <Text style={[styles.profileMeta, { marginTop: Spacing.xs }]}>
                   Группа: {group?.name}
                 </Text>
+                <Text style={[styles.profileMeta, { marginTop: Spacing.xs, fontSize: 12 }]}>
+                  ID группы: {group?.id ?? '—'}
+                </Text>
+                {user?.currentGroupId && user.currentGroupId !== group?.id && (
+                  <Text style={[styles.profileMeta, { marginTop: 2, fontSize: 11, color: colors.warning }]}>
+                    currentGroupId: {user.currentGroupId}
+                  </Text>
+                )}
               </View>
             </View>
           </View>

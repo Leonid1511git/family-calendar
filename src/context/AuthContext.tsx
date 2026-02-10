@@ -55,20 +55,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         AsyncStorage.getItem(GROUP_STORAGE_KEY),
       ]);
 
+      let parsedUser: User | null = null;
       if (userJson) {
-        const parsedUser = JSON.parse(userJson);
-        setUser({
-          ...parsedUser,
-          createdAt: new Date(parsedUser.createdAt),
-        });
+        parsedUser = {
+          ...JSON.parse(userJson),
+          createdAt: new Date(JSON.parse(userJson).createdAt),
+        };
+        setUser(parsedUser);
       }
 
+      let parsedGroup: Group | null = null;
       if (groupJson) {
-        const parsedGroup = JSON.parse(groupJson);
-        setGroup({
-          ...parsedGroup,
-          createdAt: new Date(parsedGroup.createdAt),
-        });
+        parsedGroup = {
+          ...JSON.parse(groupJson),
+          createdAt: new Date(JSON.parse(groupJson).createdAt),
+        };
+        setGroup(parsedGroup);
+      }
+
+      // Если у пользователя currentGroupId не совпадает с загруженной группой — подтягиваем группу из Firestore (одна «Семья» на всех).
+      if (parsedUser?.currentGroupId && parsedUser.currentGroupId !== parsedGroup?.id) {
+        try {
+          const firestoreGroup = await getGroupFromFirestore(parsedUser.currentGroupId);
+          if (firestoreGroup) {
+            const groupForApp: Group = {
+              id: firestoreGroup.id,
+              name: firestoreGroup.name,
+              createdBy: firestoreGroup.createdBy,
+              createdAt: firestoreGroup.createdAt,
+              members: firestoreGroup.members.map((m) => ({ userId: m.userId, role: m.role as 'admin' | 'member', joinedAt: m.joinedAt })),
+              isDefault: firestoreGroup.isDefault,
+            };
+            const existing = await groupsStorage.getById(groupForApp.id);
+            if (!existing) await groupsStorage.add(groupForApp);
+            setGroup(groupForApp);
+            await AsyncStorage.setItem(GROUP_STORAGE_KEY, JSON.stringify(groupForApp));
+          }
+        } catch (e) {
+          console.warn('Could not sync group from Firestore:', e);
+        }
       }
     } catch (error) {
       console.error('Error loading auth data:', error);
