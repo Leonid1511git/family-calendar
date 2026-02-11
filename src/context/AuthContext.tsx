@@ -73,7 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setGroup(parsedGroup);
       }
 
-      // Если у пользователя currentGroupId не совпадает с загруженной группой — подтягиваем группу из Firestore (одна «Семья» на всех).
+      // Если у пользователя currentGroupId не совпадает с загруженной группой — подтягиваем группу из Firestore.
       if (parsedUser?.currentGroupId && parsedUser.currentGroupId !== parsedGroup?.id) {
         try {
           const firestoreGroup = await getGroupFromFirestore(parsedUser.currentGroupId);
@@ -93,6 +93,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         } catch (e) {
           console.warn('Could not sync group from Firestore:', e);
+        }
+      }
+
+      // Миграция: если группа не default-family (старый авто-id с Android/fallback), переключаем на общую «Семья».
+      if (parsedUser && parsedGroup?.id && parsedGroup.id !== DEFAULT_GROUP_ID) {
+        try {
+          const defaultGroupFromFs = await getGroupFromFirestore(DEFAULT_GROUP_ID);
+          if (defaultGroupFromFs) {
+            const groupForApp: Group = {
+              id: defaultGroupFromFs.id,
+              name: defaultGroupFromFs.name,
+              createdBy: defaultGroupFromFs.createdBy,
+              createdAt: defaultGroupFromFs.createdAt,
+              members: defaultGroupFromFs.members.map((m) => ({ userId: m.userId, role: m.role as 'admin' | 'member', joinedAt: m.joinedAt })),
+              isDefault: defaultGroupFromFs.isDefault,
+            };
+            const existing = await groupsStorage.getById(groupForApp.id);
+            if (!existing) await groupsStorage.add(groupForApp);
+            setGroup(groupForApp);
+            await AsyncStorage.setItem(GROUP_STORAGE_KEY, JSON.stringify(groupForApp));
+            const updatedUser = { ...parsedUser, currentGroupId: DEFAULT_GROUP_ID };
+            await usersStorage.update(parsedUser.id, updatedUser);
+            setUser(updatedUser);
+            await AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(updatedUser));
+            updateUserInFirestore(parsedUser.id, { currentGroupId: DEFAULT_GROUP_ID }).catch(() => {});
+          }
+        } catch (e) {
+          console.warn('Could not migrate to default-family:', e);
         }
       }
     } catch (error) {
