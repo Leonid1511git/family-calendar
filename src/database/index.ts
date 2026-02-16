@@ -7,6 +7,7 @@ const GROUPS_KEY = '@groups';
 const USERS_KEY = '@users';
 const SYNC_QUEUE_KEY = '@sync_queue';
 const NOTIFY_OWN_ACTIONS_KEY = '@notify_own_actions';
+const DEFAULT_CALENDAR_VIEW_KEY = '@default_calendar_view';
 
 // Sync Queue Item interface
 export interface SyncQueueItem {
@@ -247,6 +248,18 @@ export const settingsStorage = {
   },
   async setNotifyOwnActions(value: boolean): Promise<void> {
     await AsyncStorage.setItem(NOTIFY_OWN_ACTIONS_KEY, value ? 'true' : 'false');
+  },
+  async getDefaultCalendarView(): Promise<'month' | 'week' | 'day'> {
+    try {
+      const v = await AsyncStorage.getItem(DEFAULT_CALENDAR_VIEW_KEY);
+      if (v === 'month' || v === 'week' || v === 'day') return v;
+      return 'month';
+    } catch {
+      return 'month';
+    }
+  },
+  async setDefaultCalendarView(value: 'month' | 'week' | 'day'): Promise<void> {
+    await AsyncStorage.setItem(DEFAULT_CALENDAR_VIEW_KEY, value);
   },
 };
 

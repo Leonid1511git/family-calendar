@@ -17,6 +17,7 @@ import { useAuth } from '../context/AuthContext';
 import { Spacing, BorderRadius, FontSize, FontWeight } from '../constants/theme';
 import { ThemeType } from '../types';
 import { settingsStorage } from '../database';
+import { CalendarViewMode } from '../types';
 
 export default function SettingsScreen() {
   const { theme, setTheme, isDark, colors } = useTheme();
@@ -30,9 +31,11 @@ export default function SettingsScreen() {
   });
   const [notifyOwnActions, setNotifyOwnActions] = useState(true);
   const [reminderTime, setReminderTime] = useState(4320); // 3 days default
+  const [defaultCalendarView, setDefaultCalendarView] = useState<CalendarViewMode>('month');
 
   useEffect(() => {
     settingsStorage.getNotifyOwnActions().then(setNotifyOwnActions);
+    settingsStorage.getDefaultCalendarView().then(setDefaultCalendarView);
   }, []);
 
   const handleLogout = () => {
@@ -86,6 +89,11 @@ export default function SettingsScreen() {
     },
     section: {
       marginBottom: Spacing.lg,
+    },
+    sectionHint: {
+      fontSize: FontSize.xs,
+      marginTop: Spacing.xs,
+      marginLeft: Spacing.md,
     },
     sectionTitle: {
       fontSize: FontSize.sm,
@@ -326,6 +334,48 @@ export default function SettingsScreen() {
               </TouchableOpacity>
             ))}
           </View>
+        </View>
+
+        {/* Default calendar view */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Календарь</Text>
+          <View style={styles.themeOptions}>
+            {[
+              { value: 'month' as CalendarViewMode, label: 'Месяц', icon: 'calendar' as const },
+              { value: 'week' as CalendarViewMode, label: 'Неделя', icon: 'list' as const },
+              { value: 'day' as CalendarViewMode, label: 'День', icon: 'time' as const },
+            ].map((option) => (
+              <TouchableOpacity
+                key={option.value}
+                style={[
+                  styles.themeOption,
+                  defaultCalendarView === option.value && styles.themeOptionActive,
+                ]}
+                onPress={() => {
+                  setDefaultCalendarView(option.value);
+                  settingsStorage.setDefaultCalendarView(option.value);
+                }}
+              >
+                <Ionicons
+                  name={option.icon}
+                  size={24}
+                  color={defaultCalendarView === option.value ? colors.primary : colors.textSecondary}
+                />
+                <Text
+                  style={[
+                    styles.themeOptionText,
+                    defaultCalendarView === option.value && styles.themeOptionTextActive,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {option.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text style={[styles.sectionHint, { color: colors.textSecondary }]}>
+            Начальный вид при открытии календаря
+          </Text>
         </View>
 
         {/* Notifications Section */}

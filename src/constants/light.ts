@@ -25,6 +25,8 @@ export const lightTheme = {
   warning: '#FF9500',
   error: '#FF3B30',
   info: '#5856D6',
+  /** Цвет для выходных и праздников в календаре */
+  red: '#D32F2F',
   
   // Overlay
   overlay: 'rgba(0, 0, 0, 0.5)',

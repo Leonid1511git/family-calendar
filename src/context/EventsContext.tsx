@@ -4,7 +4,7 @@ import { Event, EventColor, RecurrenceRule, ParsedVoiceData, Participant } from 
 import { addDays, addWeeks, addMonths, isBefore, isAfter, startOfDay, format } from 'date-fns';
 import { syncService } from '../services/syncService';
 import { notificationService } from '../services/notificationService';
-import { subscribeToGroupEvents } from '../services/firebase';
+import { subscribeToGroupEvents, getGroupEventsFromFirestore } from '../services/firebase';
 import { useAuth } from './AuthContext';
 
 type EventsContextType = {
@@ -104,10 +104,18 @@ export function EventsProvider({ children }: { children: ReactNode }) {
   }, [group?.id]);
 
   // Подписка на события группы в Firestore (события из бота попадают в календарь).
-  // Подписываемся на оба id (group.id и user.currentGroupId), если различаются.
+  // Явная загрузка при старте восстанавливает события после переустановки APK (когда локальное хранилище пусто).
   useEffect(() => {
     const ids = [...new Set([group?.id, user?.currentGroupId].filter(Boolean))] as string[];
     if (ids.length === 0) return;
+
+    // Разовая загрузка из Firestore при появлении группы — после переустановки события восстанавливаются.
+    ids.forEach((groupId) => {
+      getGroupEventsFromFirestore(groupId)
+        .then((firestoreEvents) => syncService.pullChanges(groupId, firestoreEvents))
+        .then(() => loadEvents())
+        .catch((err) => console.error('Initial load events from Firestore failed:', err));
+    });
 
     const unsubscribes = ids.map((groupId) =>
       subscribeToGroupEvents(groupId, (firestoreEvents) => {

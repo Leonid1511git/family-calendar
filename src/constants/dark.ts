@@ -25,6 +25,8 @@ export const darkTheme = {
   warning: '#FF9F0A',
   error: '#FF453A',
   info: '#5E5CE6',
+  /** Цвет для выходных и праздников в календаре */
+  red: '#FF6B6B',
   
   // Overlay
   overlay: 'rgba(0, 0, 0, 0.7)',

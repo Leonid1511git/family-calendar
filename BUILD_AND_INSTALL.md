@@ -48,6 +48,69 @@
 
 ---
 
+## Android: локальная сборка APK (без EAS)
+
+Если бесплатный лимит EAS закончился, APK можно собрать **локально** — лимиты не тратятся.
+
+### Что нужно
+
+- **Node.js** и зависимости проекта: `npm install`
+- **Java 17** (рекомендуется для React Native / Expo)
+- **Android SDK** — можно поставить только **Command Line Tools** (без Android Studio), см. ниже.
+
+#### SDK без Android Studio (только command line tools)
+
+1. Скачайте [Command Line Tools](https://developer.android.com/studio#command-tools) для macOS (раздел "Command line tools only").
+2. Создайте каталог и распакуйте архив:
+   ```bash
+   mkdir -p ~/Android/Sdk/cmdline-tools
+   unzip ~/Downloads/commandlinetools-mac-*.zip -d ~/Android/Sdk/cmdline-tools
+   mv ~/Android/Sdk/cmdline-tools/cmdline-tools ~/Android/Sdk/cmdline-tools/latest
+   ```
+3. Установите нужные пакеты (версии должны совпадать с проектом: compileSdk 36, buildTools 36.0.0):
+   ```bash
+   ~/Android/Sdk/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
+   ```
+4. Укажите путь к SDK в проекте: в файле `android/local.properties` должна быть строка:
+   ```text
+   sdk.dir=/Users/ВАШ_ЛОГИН/Android/Sdk
+   ```
+   (подставьте свой путь; на macOS с логином `leo-yudenkov` это `/Users/leo-yudenkov/Android/Sdk`.)
+
+После этого сборка `./gradlew assembleRelease` будет использовать этот SDK. Android Studio ставить не обязательно.
+
+### Команды
+
+1. Перейти в папку проекта и при необходимости обновить нативную папку `android`:
+   ```bash
+   cd /Users/leo-yudenkov/Documents/family-calendar-v2
+   npx expo prebuild --platform android
+   ```
+   (если папка `android/` уже есть и вы её не меняли вручную, этот шаг можно пропустить.)
+
+2. Собрать **release** APK (подходит для установки на свои устройства):
+   ```bash
+   cd android
+   ./gradlew assembleRelease
+   cd ..
+   ```
+   Готовый файл:  
+   `android/app/build/outputs/apk/release/app-release.apk`
+
+3. Либо собрать **debug** APK (для быстрых тестов):
+   ```bash
+   cd android
+   ./gradlew assembleDebug
+   cd ..
+   ```
+   Файл: `android/app/build/outputs/apk/debug/app-debug.apk`
+
+4. Установить APK на телефон (через USB или скопировав файл).
+
+**Примечание:** release-сборка сейчас подписана debug-ключом (удобно для внутренней установки). Для публикации в Google Play нужен свой keystore и настройка подписи в `android/app/build.gradle` (signingConfigs.release).
+
+---
+
 ## iOS: сборка для TestFlight
 
 1. Перейти в папку проекта:
@@ -87,8 +150,9 @@
 
 | Цель              | Команда |
 |-------------------|--------|
-| APK (Android)     | `cd /Users/leo-yudenkov/Documents/family-calendar-v2` затем `npx eas-cli build --profile preview --platform android` |
-| iOS (TestFlight)  | `cd /Users/leo-yudenkov/Documents/family-calendar-v2` затем `npx eas-cli build --profile production --platform ios` |
+| APK через EAS     | `npx eas-cli build --profile preview --platform android` |
+| APK локально (без EAS) | `cd android && ./gradlew assembleRelease` → файл в `android/app/build/outputs/apk/release/app-release.apk` |
+| iOS (TestFlight)  | `npx eas-cli build --profile production --platform ios` |
 | Отправить в TestFlight | после сборки: `npx eas-cli submit --platform ios` |
 
 ---

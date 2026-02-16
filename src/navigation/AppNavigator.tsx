@@ -117,7 +117,7 @@ export default function AppNavigator() {
   if (isLoading) {
     return (
       <View style={[styles.loaderScreen, { backgroundColor: colors.background }]}>
-        <CalendarPageLoader />
+        <CalendarPageLoader fullScreen />
       </View>
     );
   }

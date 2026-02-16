@@ -11,18 +11,19 @@ import {
   Animated,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-// Month view removed - only week and day views
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import { format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addWeeks, subWeeks, addDays, subDays, startOfDay } from 'date-fns';
+import { format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addWeeks, subWeeks, addDays, subDays, startOfDay, startOfMonth, endOfMonth, addMonths, subMonths, isSameMonth, isToday } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { Ionicons } from '@expo/vector-icons';
-import { GestureHandlerRootView, PanGestureHandler, ScrollView as GHScrollView } from 'react-native-gesture-handler';
+import { GestureHandlerRootView, PanGestureHandler, ScrollView as GHScrollView, State } from 'react-native-gesture-handler';
 
 import { useTheme } from '../context/ThemeContext';
 import { useEvents } from '../context/EventsContext';
 import { useAuth } from '../context/AuthContext';
+import { settingsStorage } from '../database';
 import { CalendarViewMode } from '../types';
 import { DEFAULT_PARTICIPANTS } from '../constants/participants';
+import { isNonWorkingDay } from '../utils/productionCalendar';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -33,10 +34,12 @@ export default function CalendarScreen() {
   const { group, user } = useAuth();
   
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [viewMode, setViewMode] = useState<CalendarViewMode>('week');
+  const [viewMode, setViewMode] = useState<CalendarViewMode>('month');
+  const [monthOffset, setMonthOffset] = useState(0); // 0 = current month
   const [weekOffset, setWeekOffset] = useState(0); // 0 = current week, 1 = next week, -1 = previous week
   const translateX = useRef(new Animated.Value(0)).current;
   const weekFlatListRef = useRef<FlatList>(null);
+  const weekScrollState = useRef({ contentWidth: 0, layoutWidth: 0 });
 
   // Get events for the selected date
   const selectedDateEvents = events.filter(event => 
@@ -84,8 +87,32 @@ export default function CalendarScreen() {
     return eventDay >= weekStartDayDate && eventDay <= weekEndDayDate;
   });
 
+  // Month view: текущий отображаемый месяц
+  const displayMonth = addMonths(new Date(today.getFullYear(), today.getMonth(), 1), monthOffset);
+  const monthGridStart = startOfWeek(startOfMonth(displayMonth), { weekStartsOn: 1 });
+  const monthGridEnd = endOfWeek(endOfMonth(displayMonth), { weekStartsOn: 1 });
+  const allMonthGridDays = eachDayOfInterval({ start: monthGridStart, end: monthGridEnd });
+  const monthStart = startOfMonth(displayMonth);
+  const monthEnd = endOfMonth(displayMonth);
+  // Показываем только те недели, в которых есть хотя бы один день текущего месяца
+  const monthGridDays = (() => {
+    const weeks: Date[][] = [];
+    for (let i = 0; i < allMonthGridDays.length; i += 7) {
+      const chunk = allMonthGridDays.slice(i, i + 7);
+      if (chunk.length === 0) continue;
+      const weekStart = startOfDay(chunk[0]);
+      const weekEnd = startOfDay(chunk[chunk.length - 1]);
+      const overlapsMonth = weekStart <= monthEnd && weekEnd >= monthStart;
+      if (overlapsMonth) weeks.push(chunk);
+    }
+    return weeks.flat();
+  })();
+
   // Get date range text for header
   const getDateRangeText = () => {
+    if (viewMode === 'month') {
+      return format(displayMonth, 'LLLL yyyy', { locale: ru });
+    }
     if (viewMode === 'week') {
       // Use the same logic as weekDays calculation
       const baseDateForText = addWeeks(new Date(), weekOffset);
@@ -111,11 +138,19 @@ export default function CalendarScreen() {
 
   const navigateToToday = () => {
     setSelectedDate(new Date());
-    setWeekOffset(0); // Reset to current week
+    setMonthOffset(0);
+    setWeekOffset(0);
   };
 
-  const navigateToCreateEvent = () => {
-    navigation.navigate('CreateEvent' as never, { date: selectedDate } as never);
+  const navigateToCreateEvent = (date?: Date, defaultTime19?: boolean) => {
+    const d = date ?? selectedDate;
+    navigation.navigate('CreateEvent' as never, { date: d, defaultTime19 } as never);
+  };
+
+  const isFuture = (d: Date) => startOfDay(d).getTime() > startOfDay(new Date()).getTime();
+  const navigateToCreateEventFromMonthDay = (day: Date) => {
+    const use19 = isFuture(day);
+    navigateToCreateEvent(day, use19);
   };
 
 
@@ -123,9 +158,19 @@ export default function CalendarScreen() {
     navigation.navigate('EventDetails' as never, { eventId } as never);
   };
 
+  const navigateToEditEvent = (eventId: string) => {
+    navigation.navigate('EditEvent' as never, { eventId } as never);
+  };
+
   // Handle swipe gestures
   const handleSwipe = (direction: 'left' | 'right') => {
-    if (viewMode === 'week') {
+    if (viewMode === 'month') {
+      if (direction === 'left') {
+        setMonthOffset(prev => prev + 1);
+      } else {
+        setMonthOffset(prev => prev - 1);
+      }
+    } else if (viewMode === 'week') {
       if (direction === 'left') {
         setWeekOffset(prev => prev + 1); // Next week
       } else {
@@ -143,12 +188,13 @@ export default function CalendarScreen() {
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, gestureState) => {
-        return Math.abs(gestureState.dx) > 50;
+        const { dx, dy } = gestureState;
+        return Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy);
       },
       onPanResponderRelease: (_, gestureState) => {
-        if (gestureState.dx > 50) {
+        if (gestureState.dx > 40) {
           handleSwipe('right');
-        } else if (gestureState.dx < -50) {
+        } else if (gestureState.dx < -40) {
           handleSwipe('left');
         }
       },
@@ -221,6 +267,11 @@ export default function CalendarScreen() {
       </TouchableOpacity>
     );
   };
+
+  // Загрузить сохранённый вид календаря при монтировании
+  useEffect(() => {
+    settingsStorage.getDefaultCalendarView().then(setViewMode);
+  }, []);
 
   // Scroll to start of week on mount or when week changes
   useEffect(() => {
@@ -302,10 +353,10 @@ export default function CalendarScreen() {
       return (
         <View style={[styles.weekDayColumn, { width: dayColumnWidth }]}>
           <View style={styles.weekDayHeader}>
-            <Text style={[styles.weekDayName, { color: colors.textSecondary }]}>
+            <Text style={[styles.weekDayName, { color: isNonWorkingDay(day) ? colors.red : colors.textSecondary }]}>
               {format(day, 'EEE', { locale: ru })}
             </Text>
-            <Text style={[styles.weekDayNumber, { color: colors.text }]}>
+            <Text style={[styles.weekDayNumber, { color: isNonWorkingDay(day) ? colors.red : colors.text }]}>
               {format(day, 'd')}
             </Text>
             <View style={styles.eventDotContainer}>
@@ -335,8 +386,13 @@ export default function CalendarScreen() {
       );
     };
 
+    const atLeftEdge = (offset: number) => offset <= 20;
+    const atRightEdge = (offset: number) => {
+      const { contentWidth, layoutWidth } = weekScrollState.current;
+      return layoutWidth > 0 && contentWidth > layoutWidth && offset >= contentWidth - layoutWidth - 20;
+    };
     return (
-      <View style={styles.weekViewContainer}>
+      <View style={[styles.weekViewContainer, viewMode === 'week' && panResponder.panHandlers]}>
         <FlatList
           ref={weekFlatListRef}
           data={weekDays}
@@ -351,16 +407,16 @@ export default function CalendarScreen() {
             offset: dayColumnWidth * index,
             index,
           })}
-          onScrollBeginDrag={() => {
-            // #region agent log
-            __DEV__ && fetch('http://127.0.0.1:7242/ingest/7f9949bb-083d-4b4a-87ed-e303213be9b4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CalendarScreen.tsx:FlatList.onScrollBeginDrag',message:'horizontal scroll started',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
-            // #endregion
-          }}
-          onScroll={(e) => {
-            const x = e.nativeEvent.contentOffset.x;
-            // #region agent log
-            __DEV__ && fetch('http://127.0.0.1:7242/ingest/7f9949bb-083d-4b4a-87ed-e303213be9b4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CalendarScreen.tsx:FlatList.onScroll',message:'scroll offset',data:{contentOffsetX:x},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
-            // #endregion
+          onContentSizeChange={(w) => { weekScrollState.current.contentWidth = w; }}
+          onLayout={(e) => { weekScrollState.current.layoutWidth = e.nativeEvent.layout.width; }}
+          onScrollEndDrag={(e) => {
+            const { contentOffset, velocity } = e.nativeEvent;
+            const offsetX = contentOffset.x;
+            if (atLeftEdge(offsetX) && velocity.x > 0.5) {
+              setWeekOffset((prev) => prev - 1);
+            } else if (atRightEdge(offsetX) && velocity.x < -0.5) {
+              setWeekOffset((prev) => prev + 1);
+            }
           }}
           scrollEventThrottle={200}
         />
@@ -368,38 +424,136 @@ export default function CalendarScreen() {
     );
   };
 
+  const MONTH_EVENT_TITLE_LEN = 7; // минимум 6–7 символов влезает в бабл
+  const renderMonthView = () => {
+    const getDayEvents = (day: Date) =>
+      events.filter(e => {
+        if (e.isDeleted) return false;
+        const eventDay = startOfDay(new Date(e.startDate));
+        return eventDay.getTime() === startOfDay(day).getTime();
+      });
+    const truncate = (s: string) =>
+      s.length <= MONTH_EVENT_TITLE_LEN ? s : s.slice(0, MONTH_EVENT_TITLE_LEN) + '…';
+    const weekDaysLabels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+    const cellWidth = SCREEN_WIDTH / 7;
+    const rows = [] as Date[][];
+    for (let i = 0; i < monthGridDays.length; i += 7) {
+      rows.push(monthGridDays.slice(i, i + 7));
+    }
+    return (
+      <View style={styles.monthViewContainer} {...panResponder.panHandlers}>
+        <View style={[styles.monthGridColumn, { borderColor: colors.border }]}>
+          <View style={[styles.monthGridHeaderRow, { borderColor: colors.border }]}>
+            {weekDaysLabels.map((label) => (
+              <View key={label} style={[styles.monthCellHeader, { width: cellWidth, borderColor: colors.border }]}>
+                <Text style={[styles.monthCellHeaderText, { color: colors.textSecondary }]}>{label}</Text>
+              </View>
+            ))}
+          </View>
+          {rows.map((row, rowIndex) => (
+            <View key={rowIndex} style={[styles.monthGridDataRow, { borderColor: colors.border }]}>
+              {row.map((day) => {
+                const dayEvents = getDayEvents(day);
+                const inMonth = isSameMonth(day, displayMonth);
+                const isTodayCell = isToday(day);
+                return (
+                  <TouchableOpacity
+                    key={day.getTime()}
+                    style={[
+                      styles.monthCell,
+                      { width: cellWidth, backgroundColor: inMonth ? colors.background : colors.surface, borderColor: colors.border },
+                      isTodayCell && { backgroundColor: colors.primary + '18' },
+                    ]}
+                    onPress={() => navigateToCreateEventFromMonthDay(day)}
+                  >
+                  <Text
+                    style={[
+                      styles.monthCellDayNum,
+                      !inMonth && { color: colors.textTertiary },
+                      inMonth && { color: isNonWorkingDay(day) ? colors.red : (isTodayCell ? colors.primary : colors.text) },
+                      isTodayCell && { fontWeight: FontWeight.bold },
+                    ]}
+                  >
+                    {format(day, 'd')}
+                  </Text>
+                    <View style={styles.monthCellEvents}>
+                      {dayEvents.slice(0, 3).map((ev) => (
+                        <TouchableOpacity
+                          key={ev.id}
+                          style={[
+                            styles.monthEventBubble,
+                            { backgroundColor: (EventColors[ev.color] || colors.primary) + '40', borderLeftColor: EventColors[ev.color] || colors.primary },
+                          ]}
+                          onPress={() => navigateToEditEvent(ev.id)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={[styles.monthEventBubbleText, { color: colors.text }]} numberOfLines={1}>
+                            {truncate(ev.title)}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                      {dayEvents.length > 3 && (
+                        <Text style={[styles.monthEventMore, { color: colors.textTertiary }]}>+{dayEvents.length - 3}</Text>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          ))}
+        </View>
+      </View>
+    );
+  };
+
+  const dayPanRef = useRef(null);
+  const dayScrollRef = useRef(null);
   const renderDayView = () => {
     return (
-      <View style={styles.dayViewContainer} {...panResponder.panHandlers}>
-        <View style={[styles.dayHeader, { borderBottomColor: colors.border }]}>
-          <TouchableOpacity onPress={() => handleSwipe('right')}>
-            <Ionicons name="chevron-back" size={24} color={colors.primary} />
-          </TouchableOpacity>
-          <Text style={[styles.dayHeaderText, { color: colors.text }]}>
-            {format(selectedDate, 'EEEE, d MMMM', { locale: ru })}
-          </Text>
-          <TouchableOpacity onPress={() => handleSwipe('left')}>
-            <Ionicons name="chevron-forward" size={24} color={colors.primary} />
-          </TouchableOpacity>
+      <PanGestureHandler
+        ref={dayPanRef}
+        simultaneousHandlers={dayScrollRef}
+        activeOffsetX={[-30, 30]}
+        failOffsetY={[-20, 20]}
+        onHandlerStateChange={(e) => {
+          const { state, translationX } = e.nativeEvent;
+          if (state === State.END) {
+            if (translationX > 35) handleSwipe('right');
+            else if (translationX < -35) handleSwipe('left');
+          }
+        }}
+      >
+        <View style={styles.dayViewContainer}>
+          <View style={[styles.dayHeader, { borderBottomColor: colors.border }]}>
+            <TouchableOpacity onPress={() => handleSwipe('right')}>
+              <Ionicons name="chevron-back" size={24} color={colors.primary} />
+            </TouchableOpacity>
+            <Text style={[styles.dayHeaderText, { color: isNonWorkingDay(selectedDate) ? colors.red : (isToday(selectedDate) ? colors.primary : colors.text) }]}>
+              {format(selectedDate, 'EEEE, d MMMM', { locale: ru })}
+            </Text>
+            <TouchableOpacity onPress={() => handleSwipe('left')}>
+              <Ionicons name="chevron-forward" size={24} color={colors.primary} />
+            </TouchableOpacity>
+          </View>
+          <GHScrollView ref={dayScrollRef} style={styles.dayEventsList}>
+            {selectedDateEvents.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Text style={[styles.emptyStateText, { color: colors.textTertiary }]}>
+                  Нет событий на этот день
+                </Text>
+                <TouchableOpacity
+                  style={[styles.addEventButton, { backgroundColor: colors.primary }]}
+                  onPress={() => navigateToCreateEvent()}
+                >
+                  <Text style={styles.addEventButtonText}>Добавить событие</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              selectedDateEvents.map(renderEventItem)
+            )}
+          </GHScrollView>
         </View>
-        <ScrollView style={styles.dayEventsList}>
-          {selectedDateEvents.length === 0 ? (
-            <View style={styles.emptyState} {...panResponder.panHandlers}>
-              <Text style={[styles.emptyStateText, { color: colors.textTertiary }]}>
-                Нет событий на этот день
-              </Text>
-              <TouchableOpacity
-                style={[styles.addEventButton, { backgroundColor: colors.primary }]}
-                onPress={navigateToCreateEvent}
-              >
-                <Text style={styles.addEventButtonText}>Добавить событие</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            selectedDateEvents.map(renderEventItem)
-          )}
-        </ScrollView>
-      </View>
+      </PanGestureHandler>
     );
   };
 
@@ -604,6 +758,66 @@ export default function CalendarScreen() {
       fontSize: FontSize.md,
       fontWeight: FontWeight.semibold,
     },
+    monthViewContainer: {
+      flex: 1,
+      paddingHorizontal: 0,
+      width: '100%',
+    },
+    monthGridColumn: {
+      flex: 1,
+      borderWidth: 1,
+      borderRadius: BorderRadius.md,
+      overflow: 'hidden',
+      width: '100%',
+    },
+    monthGridHeaderRow: {
+      flexDirection: 'row',
+      borderBottomWidth: 1,
+    },
+    monthGridDataRow: {
+      flex: 1,
+      flexDirection: 'row',
+      borderBottomWidth: 1,
+      minHeight: 48,
+    },
+    monthCellHeader: {
+      paddingVertical: Spacing.xs,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRightWidth: 1,
+    },
+    monthCellHeaderText: {
+      fontSize: FontSize.xs,
+      fontWeight: FontWeight.medium,
+    },
+    monthCell: {
+      flex: 1,
+      paddingVertical: 2,
+      paddingHorizontal: 2,
+      borderRightWidth: 1,
+      minHeight: 44,
+    },
+    monthCellDayNum: {
+      fontSize: FontSize.xs,
+      marginBottom: 2,
+    },
+    monthCellEvents: {
+      gap: 2,
+    },
+    monthEventBubble: {
+      paddingHorizontal: 4,
+      paddingVertical: 2,
+      borderRadius: 4,
+      borderLeftWidth: 2,
+    },
+    monthEventBubbleText: {
+      fontSize: 10,
+      maxWidth: '100%',
+    },
+    monthEventMore: {
+      fontSize: 9,
+      marginTop: 1,
+    },
     weekViewContainer: {
       flex: 1,
     },
@@ -752,7 +966,7 @@ export default function CalendarScreen() {
         </View>
         <View style={styles.headerRight}>
           {getSyncIcon()}
-          <TouchableOpacity style={styles.addButton} onPress={navigateToCreateEvent}>
+          <TouchableOpacity style={styles.addButton} onPress={() => navigateToCreateEvent()}>
             <Ionicons name="add" size={24} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
@@ -760,13 +974,33 @@ export default function CalendarScreen() {
 
       {/* Calendar Content */}
       <View style={styles.calendarContent}>
+        {viewMode === 'month' && renderMonthView()}
         {viewMode === 'week' && renderWeekView()}
         {viewMode === 'day' && renderDayView()}
       </View>
 
 
-      {/* Bottom Navigation */}
+      {/* Bottom Navigation: Месяц | Неделя | День */}
       <View style={[styles.bottomNav, { borderTopColor: colors.border, borderTopWidth: 1, backgroundColor: colors.surface }]}>
+        <TouchableOpacity
+          style={[
+            styles.bottomNavButton,
+            viewMode === 'month' && styles.bottomNavButtonActive
+          ]}
+          onPress={() => setViewMode('month')}
+        >
+          <Ionicons
+            name="calendar"
+            size={20}
+            color={viewMode === 'month' ? colors.primary : colors.textTertiary}
+          />
+          <Text style={[
+            styles.bottomNavText,
+            { color: viewMode === 'month' ? colors.primary : colors.textTertiary }
+          ]}>
+            Месяц
+          </Text>
+        </TouchableOpacity>
         <TouchableOpacity
           style={[
             styles.bottomNavButton,

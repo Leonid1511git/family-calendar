@@ -14,7 +14,7 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
-import { format, addHours, addMinutes, isPast, setHours, setMinutes, endOfDay } from 'date-fns';
+import { format, addHours, addMinutes, isPast, setHours, setMinutes, endOfDay, startOfDay } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -26,6 +26,14 @@ import { CalendarPageLoader } from '../components';
 import { EventColor, RecurrenceRule, ParsedVoiceData, ReminderTime, Participant } from '../types';
 import { REMINDER_OPTIONS } from '../services/notificationService';
 import { DEFAULT_PARTICIPANTS } from '../constants/participants';
+
+const STEP_MINUTES = 15;
+const roundTo15Min = (d: Date): Date => {
+  const out = new Date(d);
+  const m = out.getMinutes();
+  out.setMinutes(Math.floor(m / STEP_MINUTES) * STEP_MINUTES, 0, 0);
+  return out;
+};
 
 const RECURRENCE_OPTIONS = [
   { label: 'Не повторяется', value: null },
@@ -43,16 +51,27 @@ export default function CreateEventScreen() {
 
   const initialDate = (route.params as any)?.date || new Date();
   const voiceData: ParsedVoiceData | undefined = (route.params as any)?.voiceData;
+  const defaultTime19 = (route.params as any)?.defaultTime19 === true;
 
-  // Ensure start date is at least 15 minutes in the future
+  // При создании из month view на дату в будущем (строго после сегодня) — 19:00–20:00. Иначе — следующий час.
   const getDefaultStartDate = () => {
-    const now = new Date();
-    const defaultStart = voiceData?.startDate || initialDate;
-    // If the date is in the past, set it to 15 minutes from now
-    if (isPast(defaultStart)) {
-      return addMinutes(now, 15);
+    if (voiceData?.startDate) return voiceData.startDate;
+    const selectedDayStart = startOfDay(initialDate);
+    const todayStart = startOfDay(new Date());
+    if (defaultTime19 && selectedDayStart.getTime() > todayStart.getTime()) {
+      const start = new Date(selectedDayStart);
+      start.setHours(19, 0, 0, 0);
+      return start;
     }
-    return defaultStart;
+    const now = new Date();
+    const nextHour = addHours(new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours(), 0, 0, 0), 1);
+    const start = new Date(initialDate);
+    start.setHours(nextHour.getHours(), 0, 0, 0);
+    start.setSeconds(0, 0);
+    if (isPast(start)) {
+      return nextHour;
+    }
+    return start;
   };
 
   const defaultStartDate = getDefaultStartDate();
@@ -194,8 +213,7 @@ export default function CreateEventScreen() {
     if (selectedTime && event.type !== 'dismissed') {
       const newDate = new Date(startDate);
       newDate.setHours(selectedTime.getHours(), selectedTime.getMinutes());
-      setStartDate(newDate);
-      // EndDate will be updated automatically via useEffect
+      setStartDate(roundTo15Min(newDate));
       if (Platform.OS === 'ios') {
         setShowStartTimePicker(false);
       }
@@ -223,7 +241,7 @@ export default function CreateEventScreen() {
     if (selectedTime && event.type !== 'dismissed') {
       const newDate = new Date(endDate);
       newDate.setHours(selectedTime.getHours(), selectedTime.getMinutes());
-      setEndDate(newDate);
+      setEndDate(roundTo15Min(newDate));
       if (Platform.OS === 'ios') {
         setShowEndTimePicker(false);
       }
@@ -269,6 +287,19 @@ export default function CreateEventScreen() {
       fontSize: FontSize.sm,
       color: colors.text,
       fontWeight: FontWeight.medium,
+    },
+    timeRowWithArrows: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.xs,
+    },
+    timeArrowButton: {
+      width: 36,
+      height: 44,
+      borderRadius: BorderRadius.md,
+      borderWidth: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
     },
     label: {
       fontSize: FontSize.xs,
@@ -490,12 +521,26 @@ export default function CreateEventScreen() {
               <Text style={styles.dateTimeValueCompact}>{format(startDate, 'dd.MM.yy')}</Text>
             </TouchableOpacity>
             {!allDay && (
-              <TouchableOpacity
-                style={styles.dateTimeButtonCompact}
-                onPress={() => { Keyboard.dismiss(); setShowStartTimePicker(true); }}
-              >
-                <Text style={styles.dateTimeValueCompact}>{format(startDate, 'HH:mm')}</Text>
-              </TouchableOpacity>
+              <View style={styles.timeRowWithArrows}>
+                <TouchableOpacity
+                  style={[styles.timeArrowButton, { borderColor: colors.border }]}
+                  onPress={() => { Keyboard.dismiss(); setStartDate(addMinutes(roundTo15Min(startDate), -STEP_MINUTES)); }}
+                >
+                  <Ionicons name="chevron-back" size={18} color={colors.text} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.dateTimeButtonCompact}
+                  onPress={() => { Keyboard.dismiss(); setShowStartTimePicker(true); }}
+                >
+                  <Text style={styles.dateTimeValueCompact}>{format(roundTo15Min(startDate), 'HH:mm')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.timeArrowButton, { borderColor: colors.border }]}
+                  onPress={() => { Keyboard.dismiss(); setStartDate(addMinutes(roundTo15Min(startDate), STEP_MINUTES)); }}
+                >
+                  <Ionicons name="chevron-forward" size={18} color={colors.text} />
+                </TouchableOpacity>
+              </View>
             )}
           </View>
           <View style={styles.inputGroupCompact}>
@@ -507,12 +552,26 @@ export default function CreateEventScreen() {
               <Text style={styles.dateTimeValueCompact}>{format(endDate, 'dd.MM.yy')}</Text>
             </TouchableOpacity>
             {!allDay && (
-              <TouchableOpacity
-                style={styles.dateTimeButtonCompact}
-                onPress={() => { Keyboard.dismiss(); setShowEndTimePicker(true); }}
-              >
-                <Text style={styles.dateTimeValueCompact}>{format(endDate, 'HH:mm')}</Text>
-              </TouchableOpacity>
+              <View style={styles.timeRowWithArrows}>
+                <TouchableOpacity
+                  style={[styles.timeArrowButton, { borderColor: colors.border }]}
+                  onPress={() => { Keyboard.dismiss(); setEndDate(addMinutes(roundTo15Min(endDate), -STEP_MINUTES)); }}
+                >
+                  <Ionicons name="chevron-back" size={18} color={colors.text} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.dateTimeButtonCompact}
+                  onPress={() => { Keyboard.dismiss(); setShowEndTimePicker(true); }}
+                >
+                  <Text style={styles.dateTimeValueCompact}>{format(roundTo15Min(endDate), 'HH:mm')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.timeArrowButton, { borderColor: colors.border }]}
+                  onPress={() => { Keyboard.dismiss(); setEndDate(addMinutes(roundTo15Min(endDate), STEP_MINUTES)); }}
+                >
+                  <Ionicons name="chevron-forward" size={18} color={colors.text} />
+                </TouchableOpacity>
+              </View>
             )}
           </View>
         </View>
@@ -726,7 +785,18 @@ export default function CreateEventScreen() {
       {Platform.OS === 'ios' ? (
         <>
           {(showStartDatePicker || showStartTimePicker || showEndDatePicker || showEndTimePicker) && (
-            <Modal visible transparent animationType="slide">
+            <Modal
+              visible
+              transparent
+              animationType="slide"
+              presentationStyle="formSheet"
+              onRequestClose={() => {
+                setShowStartDatePicker(false);
+                setShowStartTimePicker(false);
+                setShowEndDatePicker(false);
+                setShowEndTimePicker(false);
+              }}
+            >
               <TouchableOpacity
                 style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}
                 activeOpacity={1}
@@ -737,18 +807,18 @@ export default function CreateEventScreen() {
                   setShowEndTimePicker(false);
                 }}
               >
-                <View style={{ backgroundColor: colors.background, borderTopLeftRadius: 16, borderTopRightRadius: 16 }}>
+                <TouchableOpacity
+                  activeOpacity={1}
+                  onPress={() => {
+                    setShowStartDatePicker(false);
+                    setShowStartTimePicker(false);
+                    setShowEndDatePicker(false);
+                    setShowEndTimePicker(false);
+                  }}
+                  style={{ backgroundColor: colors.background, borderTopLeftRadius: 16, borderTopRightRadius: 16 }}
+                >
                   <View style={{ flexDirection: 'row', justifyContent: 'flex-end', padding: 12 }}>
-                    <TouchableOpacity
-                      onPress={() => {
-                        setShowStartDatePicker(false);
-                        setShowStartTimePicker(false);
-                        setShowEndDatePicker(false);
-                        setShowEndTimePicker(false);
-                      }}
-                    >
-                      <Text style={{ fontSize: 17, color: colors.primary, fontWeight: '600' }}>Готово</Text>
-                    </TouchableOpacity>
+                    <Text style={{ fontSize: 17, color: colors.primary, fontWeight: '600' }}>Готово</Text>
                   </View>
                   {showStartDatePicker && (
                     <DateTimePicker
@@ -788,7 +858,7 @@ export default function CreateEventScreen() {
                       locale="ru-RU"
                     />
                   )}
-                </View>
+                </TouchableOpacity>
               </TouchableOpacity>
             </Modal>
           )}

@@ -33,6 +33,15 @@ const USER_STORAGE_KEY = '@family_calendar_user';
 const GROUP_STORAGE_KEY = '@family_calendar_group';
 /** Должен совпадать с Cloud Function (functions/src/index.ts): одна группа «Семья» на всех. */
 const DEFAULT_GROUP_ID = 'default-family';
+/** Таймаут загрузки группы из Firestore при старте (мс). Чтобы при первом запуске без сети приложение не зависало. */
+const GROUP_LOAD_TIMEOUT_MS = 8000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -49,7 +58,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loadAuthData = async () => {
     try {
-      // Load from AsyncStorage
       const [userJson, groupJson] = await Promise.all([
         AsyncStorage.getItem(USER_STORAGE_KEY),
         AsyncStorage.getItem(GROUP_STORAGE_KEY),
@@ -61,24 +69,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           ...JSON.parse(userJson),
           createdAt: new Date(JSON.parse(userJson).createdAt),
         };
-        setUser(parsedUser);
       }
 
-      let parsedGroup: Group | null = null;
-      if (groupJson) {
-        parsedGroup = {
-          ...JSON.parse(groupJson),
-          createdAt: new Date(JSON.parse(groupJson).createdAt),
-        };
-        setGroup(parsedGroup);
+      // Жёсткая перезапись: все текущие пользователи всегда в группе default-family. Сброс кэша при любом другом id.
+      if (parsedUser && parsedUser.currentGroupId !== DEFAULT_GROUP_ID) {
+        const updatedUser = { ...parsedUser, currentGroupId: DEFAULT_GROUP_ID };
+        await usersStorage.update(parsedUser.id, updatedUser);
+        parsedUser = updatedUser;
+        await AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(updatedUser));
+        updateUserInFirestore(parsedUser.id, { currentGroupId: DEFAULT_GROUP_ID }).catch(() => {});
+        joinGroupInFirestore(DEFAULT_GROUP_ID, parsedUser.id, 'member').catch(() => {});
+        await AsyncStorage.removeItem(GROUP_STORAGE_KEY);
       }
+      // Гарантируем запись в groups/default-family/members при каждой загрузке (идемпотентно). Не ждём — не блокируем старт.
+      if (parsedUser?.currentGroupId === DEFAULT_GROUP_ID) {
+        joinGroupInFirestore(DEFAULT_GROUP_ID, parsedUser.id, parsedUser.role || 'member').catch(() => {});
+      }
+      setUser(parsedUser);
 
-      // Если у пользователя currentGroupId не совпадает с загруженной группой — подтягиваем группу из Firestore.
-      if (parsedUser?.currentGroupId && parsedUser.currentGroupId !== parsedGroup?.id) {
+      // Группа всегда default-family: при другом id в кэше — сбрасываем и подтягиваем из Firestore (или минимальную локальную).
+      let groupToSet: Group | null = null;
+      const cachedGroup = groupJson ? JSON.parse(groupJson) : null;
+      if (cachedGroup?.id !== DEFAULT_GROUP_ID) {
+        await AsyncStorage.removeItem(GROUP_STORAGE_KEY);
+      }
+      if (cachedGroup?.id === DEFAULT_GROUP_ID) {
+        groupToSet = { ...cachedGroup, createdAt: new Date(cachedGroup.createdAt) };
+      }
+      if (!groupToSet) {
         try {
-          const firestoreGroup = await getGroupFromFirestore(parsedUser.currentGroupId);
+          const firestoreGroup = await withTimeout(
+            getGroupFromFirestore(DEFAULT_GROUP_ID),
+            GROUP_LOAD_TIMEOUT_MS,
+            null
+          );
           if (firestoreGroup) {
-            const groupForApp: Group = {
+            groupToSet = {
               id: firestoreGroup.id,
               name: firestoreGroup.name,
               createdBy: firestoreGroup.createdBy,
@@ -86,42 +112,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               members: firestoreGroup.members.map((m) => ({ userId: m.userId, role: m.role as 'admin' | 'member', joinedAt: m.joinedAt })),
               isDefault: firestoreGroup.isDefault,
             };
-            const existing = await groupsStorage.getById(groupForApp.id);
-            if (!existing) await groupsStorage.add(groupForApp);
-            setGroup(groupForApp);
-            await AsyncStorage.setItem(GROUP_STORAGE_KEY, JSON.stringify(groupForApp));
+            const existing = await groupsStorage.getById(groupToSet.id);
+            if (!existing) await groupsStorage.add(groupToSet);
+          } else {
+            groupToSet = {
+              id: DEFAULT_GROUP_ID,
+              name: 'Семья',
+              createdBy: '',
+              createdAt: new Date(),
+              members: [],
+              isDefault: true,
+            };
+            const existing = await groupsStorage.getById(DEFAULT_GROUP_ID);
+            if (!existing) await groupsStorage.add(groupToSet);
           }
         } catch (e) {
-          console.warn('Could not sync group from Firestore:', e);
+          console.warn('Could not load default-family group:', e);
+          groupToSet = {
+            id: DEFAULT_GROUP_ID,
+            name: 'Семья',
+            createdBy: '',
+            createdAt: new Date(),
+            members: [],
+            isDefault: true,
+          };
+          const existing = await groupsStorage.getById(DEFAULT_GROUP_ID);
+          if (!existing) await groupsStorage.add(groupToSet);
         }
       }
-
-      // Миграция: если группа не default-family (старый авто-id с Android/fallback), переключаем на общую «Семья».
-      if (parsedUser && parsedGroup?.id && parsedGroup.id !== DEFAULT_GROUP_ID) {
-        try {
-          const defaultGroupFromFs = await getGroupFromFirestore(DEFAULT_GROUP_ID);
-          if (defaultGroupFromFs) {
-            const groupForApp: Group = {
-              id: defaultGroupFromFs.id,
-              name: defaultGroupFromFs.name,
-              createdBy: defaultGroupFromFs.createdBy,
-              createdAt: defaultGroupFromFs.createdAt,
-              members: defaultGroupFromFs.members.map((m) => ({ userId: m.userId, role: m.role as 'admin' | 'member', joinedAt: m.joinedAt })),
-              isDefault: defaultGroupFromFs.isDefault,
-            };
-            const existing = await groupsStorage.getById(groupForApp.id);
-            if (!existing) await groupsStorage.add(groupForApp);
-            setGroup(groupForApp);
-            await AsyncStorage.setItem(GROUP_STORAGE_KEY, JSON.stringify(groupForApp));
-            const updatedUser = { ...parsedUser, currentGroupId: DEFAULT_GROUP_ID };
-            await usersStorage.update(parsedUser.id, updatedUser);
-            setUser(updatedUser);
-            await AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(updatedUser));
-            updateUserInFirestore(parsedUser.id, { currentGroupId: DEFAULT_GROUP_ID }).catch(() => {});
-          }
-        } catch (e) {
-          console.warn('Could not migrate to default-family:', e);
-        }
+      if (groupToSet) {
+        setGroup(groupToSet);
+        await AsyncStorage.setItem(GROUP_STORAGE_KEY, JSON.stringify(groupToSet));
       }
     } catch (error) {
       console.error('Error loading auth data:', error);
@@ -231,6 +252,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           step = 'signInWithCustomToken';
           await signInWithCustomToken(getAuth(), customToken);
           const now = new Date();
+          // Всегда привязываем к default-family (жёсткая перезапись, не доверяем старым значениям с сервера).
           const localUser: User = {
             id: serverUser.id,
             telegramId: serverUser.telegramId,
@@ -238,7 +260,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             lastName: serverUser.lastName,
             username: serverUser.username,
             avatarUrl: serverUser.avatarUrl,
-            currentGroupId: serverUser.currentGroupId,
+            currentGroupId: DEFAULT_GROUP_ID,
             role: (serverUser.role as 'admin' | 'member') || 'admin',
             createdAt: now,
           };
@@ -250,7 +272,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
           setUser(localUser);
           await AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(localUser));
-          const userGroup = await getGroupFromFirestore(localUser.currentGroupId);
+          const userGroup = await getGroupFromFirestore(DEFAULT_GROUP_ID);
           if (userGroup) {
             const groupForApp: Group = {
               id: userGroup.id,
@@ -264,7 +286,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (!existingGroup) await groupsStorage.add(groupForApp);
             setGroup(groupForApp);
             await AsyncStorage.setItem(GROUP_STORAGE_KEY, JSON.stringify(groupForApp));
+          } else {
+            const fallbackGroup: Group = {
+              id: DEFAULT_GROUP_ID,
+              name: 'Семья',
+              createdBy: '',
+              createdAt: now,
+              members: [],
+              isDefault: true,
+            };
+            const existingGroup = await groupsStorage.getById(DEFAULT_GROUP_ID);
+            if (!existingGroup) await groupsStorage.add(fallbackGroup);
+            setGroup(fallbackGroup);
+            await AsyncStorage.setItem(GROUP_STORAGE_KEY, JSON.stringify(fallbackGroup));
           }
+          await joinGroupInFirestore(DEFAULT_GROUP_ID, localUser.id, localUser.role || 'member').catch(() => {});
           return;
         } catch (telegramErr: unknown) {
           const stepInfo = step ? ` (at step: ${step})` : '';
@@ -401,7 +437,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         console.warn('Group not found for user:', localUser.currentGroupId);
       }
-      
+      await joinGroupInFirestore(DEFAULT_GROUP_ID, localUser.id, localUser.role || 'member').catch(() => {});
+
       // #region agent log
       __DEV__ && fetch('http://127.0.0.1:7242/ingest/7f9949bb-083d-4b4a-87ed-e303213be9b4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.tsx:174',message:'login completed',data:{timestamp:Date.now()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
       // #endregion

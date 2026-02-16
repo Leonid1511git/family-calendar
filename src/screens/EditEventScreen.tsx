@@ -714,18 +714,18 @@ export default function EditEventScreen() {
                 setShowEndTimePicker(false);
               }}
             >
-              <View style={{ backgroundColor: colors.background, borderTopLeftRadius: 16, borderTopRightRadius: 16 }}>
+              <TouchableOpacity
+                activeOpacity={1}
+                onPress={() => {
+                  setShowStartDatePicker(false);
+                  setShowStartTimePicker(false);
+                  setShowEndDatePicker(false);
+                  setShowEndTimePicker(false);
+                }}
+                style={{ backgroundColor: colors.background, borderTopLeftRadius: 16, borderTopRightRadius: 16 }}
+              >
                 <View style={{ flexDirection: 'row', justifyContent: 'flex-end', padding: 12 }}>
-                  <TouchableOpacity
-                    onPress={() => {
-                      setShowStartDatePicker(false);
-                      setShowStartTimePicker(false);
-                      setShowEndDatePicker(false);
-                      setShowEndTimePicker(false);
-                    }}
-                  >
-                    <Text style={{ fontSize: 17, color: colors.primary, fontWeight: '600' }}>Готово</Text>
-                  </TouchableOpacity>
+                  <Text style={{ fontSize: 17, color: colors.primary, fontWeight: '600' }}>Готово</Text>
                 </View>
                 {showStartDatePicker && (
                   <DateTimePicker value={startDate} mode="date" display="spinner" onChange={onStartDateChange} locale="ru-RU" />
@@ -739,7 +739,7 @@ export default function EditEventScreen() {
                 {showEndTimePicker && (
                   <DateTimePicker value={endDate} mode="time" display="spinner" onChange={onEndTimeChange} locale="ru-RU" />
                 )}
-              </View>
+              </TouchableOpacity>
             </TouchableOpacity>
           </Modal>
         )

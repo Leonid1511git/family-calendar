@@ -14,12 +14,6 @@ type CalendarPageLoaderProps = {
 
 export default function CalendarPageLoader({ fullScreen = false }: CalendarPageLoaderProps) {
   const { colors, Spacing, BorderRadius } = useTheme();
-  // #region agent log
-  const log = (message: string, data: Record<string, unknown>) => {
-    fetch('http://127.0.0.1:7242/ingest/7f9949bb-083d-4b4a-87ed-e303213be9b4', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'CalendarPageLoader.tsx', message, data: { ...data, fullScreen }, timestamp: Date.now(), sessionId: 'debug-session' }) }).catch(() => {});
-  };
-  log('loader render', { overlay: colors?.overlay?.slice?.(0, 12), surface: colors?.surface?.slice?.(0, 12), primary: colors?.primary?.slice?.(0, 12), hasColors: !!colors });
-  // #endregion
   const anims = useRef([
     new Animated.Value(1),
     ...Array.from({ length: NUM_PAGES - 1 }, () => new Animated.Value(0.3)),
@@ -83,33 +77,14 @@ export default function CalendarPageLoader({ fullScreen = false }: CalendarPageL
   };
 
   const content = (
-    <View
-      style={styles.stack}
-      onLayout={(e) => {
-        const { width, height } = e.nativeEvent.layout;
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/7f9949bb-083d-4b4a-87ed-e303213be9b4', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'CalendarPageLoader.tsx stack', message: 'stack onLayout', data: { width, height, hypothesisId: 'H3' }, timestamp: Date.now(), sessionId: 'debug-session' }) }).catch(() => {});
-        // #endregion
-      }}
-    >
+    <View style={styles.stack}>
       {Array.from({ length: NUM_PAGES }, (_, i) => renderPage(i))}
     </View>
   );
 
   if (fullScreen) {
-    // #region agent log
-    log('fullScreen branch return', { returning: 'overlay+fallback only' });
-    // #endregion
     return (
-      <View
-        style={[styles.fullScreen, { backgroundColor: colors.overlay }]}
-        onLayout={(e) => {
-          const { width, height } = e.nativeEvent.layout;
-          // #region agent log
-          log('fullScreen onLayout', { width, height, hypothesisId: 'H3' });
-          // #endregion
-        }}
-      >
+      <View style={[styles.fullScreen, { backgroundColor: colors.overlay }]}>
         <View style={styles.fallbackWrap}>
           <ActivityIndicator size="large" color={colors.primary} />
           <Text style={[styles.fallbackText, { color: colors.textSecondary }]}>Загрузка…</Text>

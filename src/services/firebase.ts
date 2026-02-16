@@ -199,16 +199,25 @@ export const getGroupFromFirestore = async (groupId: string): Promise<{
   };
 };
 
+const groupEventsQuery = (groupId: string) => query(
+  eventsRef,
+  where('groupId', '==', groupId),
+  where('isDeleted', '==', false),
+  orderBy('startDate', 'asc')
+);
+
+/** Загружает все события группы из Firestore (для восстановления после переустановки). */
+export const getGroupEventsFromFirestore = async (groupId: string): Promise<any[]> => {
+  const snapshot = await getDocs(groupEventsQuery(groupId));
+  return snapshot.docs.map(doc => ({
+    id: doc.id,
+    ...doc.data(),
+  }));
+};
+
 // Subscribe to group events
 export const subscribeToGroupEvents = (groupId: string, callback: (events: any[]) => void) => {
-  const q = query(
-    eventsRef,
-    where('groupId', '==', groupId),
-    where('isDeleted', '==', false),
-    orderBy('startDate', 'asc')
-  );
-
-  return onSnapshot(q, (snapshot) => {
+  return onSnapshot(groupEventsQuery(groupId), (snapshot) => {
     const events = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),

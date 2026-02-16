@@ -121,7 +121,7 @@ export type MainTabParamList = {
 export type CalendarStackParamList = {
   CalendarMain: undefined;
   EventDetails: { eventId: string };
-  CreateEvent: { date?: Date; voiceData?: ParsedVoiceData };
+  CreateEvent: { date?: Date; voiceData?: ParsedVoiceData; defaultTime19?: boolean };
   EditEvent: { eventId: string };
 };
 
@@ -134,4 +134,4 @@ export interface ParsedVoiceData {
 }
 
 // Calendar view types
-export type CalendarViewMode = 'week' | 'day';
+export type CalendarViewMode = 'month' | 'week' | 'day';
