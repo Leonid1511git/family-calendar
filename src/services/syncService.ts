@@ -56,6 +56,40 @@ class SyncService {
     return this.isOnline;
   }
 
+  /** Сразу пишет событие в Firestore (при создании). Возвращает remoteId или null при ошибке. */
+  public async createEventImmediate(recordId: string, data: any): Promise<string | null> {
+    if (!this.isOnline) return null;
+    try {
+      const eventData = {
+        ...data,
+        startDate: toTimestamp(data.startDate),
+        endDate: toTimestamp(data.endDate),
+        recurrence: this.serializeRecurrence(data.recurrence),
+      };
+      const remoteId = await createEventInFirestore(eventData);
+      const event = await eventsStorage.getById(recordId);
+      if (event) {
+        await eventsStorage.update(recordId, { remoteId, isSynced: true });
+      }
+      return remoteId;
+    } catch (err) {
+      console.error('createEventImmediate failed:', err);
+      return null;
+    }
+  }
+
+  /** Сразу удаляет событие из Firestore по remoteId. Возвращает true при успехе, false при ошибке. */
+  public async deleteEventImmediate(remoteId: string): Promise<boolean> {
+    if (!this.isOnline || !remoteId) return false;
+    try {
+      await deleteEventFromFirestore(remoteId);
+      return true;
+    } catch (err) {
+      console.error('deleteEventImmediate failed:', err);
+      return false;
+    }
+  }
+
   // Add operation to sync queue
   public async queueOperation(
     operation: 'create' | 'update' | 'delete',
@@ -98,8 +132,7 @@ class SyncService {
           await this.processSyncItem(item);
           await syncQueueStorage.remove(item.id);
         } catch (error) {
-          console.error('Sync item failed:', error);
-          // Update retry count
+          console.error('Sync item failed:', item.entityType, item.type, item.entityId, error);
           await syncQueueStorage.update(item.id, { retryCount: item.retryCount + 1 });
         }
       }
@@ -127,6 +160,15 @@ class SyncService {
     }
   }
 
+  /** Сериализует recurrence для Firestore (вложенные Date не поддерживаются). */
+  private serializeRecurrence(recurrence: any): any {
+    if (recurrence == null) return undefined;
+    const out = { ...recurrence };
+    if (out.endDate instanceof Date) out.endDate = out.endDate.getTime();
+    if (typeof out.endDate === 'object' && out.endDate?.toMillis) out.endDate = out.endDate.toMillis();
+    return out;
+  }
+
   private async syncEvent(
     operation: string, 
     recordId: string, 
@@ -136,6 +178,7 @@ class SyncService {
       ...data,
       startDate: toTimestamp(data.startDate),
       endDate: toTimestamp(data.endDate),
+      recurrence: this.serializeRecurrence(data.recurrence),
     };
 
     switch (operation) {
@@ -179,6 +222,29 @@ class SyncService {
     console.log('Syncing user:', operation, recordId);
   }
 
+  /** Парсит recurrence из Firestore: хранится как объект (recurrence) или строка (recurrenceRule). */
+  private parseRecurrence(remoteEvent: any): any {
+    if (remoteEvent.recurrence != null && typeof remoteEvent.recurrence === 'object') {
+      return remoteEvent.recurrence;
+    }
+    if (typeof remoteEvent.recurrenceRule === 'string') {
+      try {
+        return JSON.parse(remoteEvent.recurrenceRule);
+      } catch {
+        return undefined;
+      }
+    }
+    return undefined;
+  }
+
+  private toDate(v: any): Date {
+    if (v == null) return new Date();
+    if (typeof v?.toMillis === 'function') return new Date(v.toMillis());
+    if (typeof v === 'number') return new Date(v);
+    if (v instanceof Date) return v;
+    return new Date(v);
+  }
+
   // Pull changes from Firestore (не воскрешаем локально удалённые события)
   public async pullChanges(groupId: string, remoteEvents: any[]) {
     const allEvents = await eventsStorage.getAll();
@@ -186,60 +252,78 @@ class SyncService {
     const localEventsNonDeleted = localEventsInGroup.filter(e => !e.isDeleted);
 
     for (const remoteEvent of remoteEvents) {
-      const existingEvent = localEventsInGroup.find(e => e.remoteId === remoteEvent.id);
-      if (existingEvent?.isDeleted) {
-        // Локально удалённое — не перезаписываем, удаление имеет приоритет
-        continue;
-      }
-      const existingNonDeleted = localEventsNonDeleted.find(e => e.remoteId === remoteEvent.id);
-
-      if (existingNonDeleted) {
-        // Update existing
-        const remoteUpdatedAt = remoteEvent.updatedAt?.toMillis?.() || remoteEvent.updatedAt || 0;
-        const localUpdatedAt = existingNonDeleted.updatedAt.getTime();
-        if (remoteUpdatedAt > localUpdatedAt) {
-          await eventsStorage.update(existingNonDeleted.id, {
-            title: remoteEvent.title,
-            description: remoteEvent.description || undefined,
-            startDate: new Date(remoteEvent.startDate?.toMillis?.() || remoteEvent.startDate),
-            endDate: new Date(remoteEvent.endDate?.toMillis?.() || remoteEvent.endDate),
-            allDay: remoteEvent.allDay,
-            location: remoteEvent.location || undefined,
-            color: remoteEvent.color as EventColor,
-            type: remoteEvent.type,
-            recurrence: remoteEvent.recurrenceRule ? JSON.parse(remoteEvent.recurrenceRule) : undefined,
-            isDeleted: remoteEvent.isDeleted || false,
-            isSynced: true,
-            updatedAt: new Date(remoteUpdatedAt),
-          });
+      try {
+        const existingEvent = localEventsInGroup.find(e => e.remoteId === remoteEvent.id);
+        if (existingEvent?.isDeleted) {
+          continue;
         }
-      } else if (!existingEvent) {
-        // Create new
-        const now = new Date();
-        const eventId = `event_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        
-        const newEvent = {
-          id: eventId,
-          title: remoteEvent.title,
-          description: remoteEvent.description || undefined,
-          startDate: new Date(remoteEvent.startDate?.toMillis?.() || remoteEvent.startDate),
-          endDate: new Date(remoteEvent.endDate?.toMillis?.() || remoteEvent.endDate),
-          allDay: remoteEvent.allDay,
-          location: remoteEvent.location || undefined,
-          color: remoteEvent.color as EventColor,
-          participants: remoteEvent.participants || [],
-          type: remoteEvent.type,
-          recurrence: remoteEvent.recurrenceRule ? JSON.parse(remoteEvent.recurrenceRule) : undefined,
-          groupId: remoteEvent.groupId,
-          createdBy: remoteEvent.createdBy,
-          createdAt: new Date(remoteEvent.createdAt?.toMillis?.() || remoteEvent.createdAt || now),
-          updatedAt: new Date(remoteEvent.updatedAt?.toMillis?.() || remoteEvent.updatedAt || now),
-          isDeleted: remoteEvent.isDeleted || false,
-          isSynced: true,
-          remoteId: remoteEvent.id,
-        };
+        const existingNonDeleted = localEventsNonDeleted.find(e => e.remoteId === remoteEvent.id);
+        const recurrence = this.parseRecurrence(remoteEvent);
 
-        await eventsStorage.add(newEvent as any);
+        if (existingNonDeleted) {
+          const remoteUpdatedAt = this.toDate(remoteEvent.updatedAt).getTime();
+          const localUpdatedAt = existingNonDeleted.updatedAt.getTime();
+          if (remoteUpdatedAt > localUpdatedAt) {
+            await eventsStorage.update(existingNonDeleted.id, {
+              title: remoteEvent.title,
+              description: remoteEvent.description ?? undefined,
+              startDate: this.toDate(remoteEvent.startDate),
+              endDate: this.toDate(remoteEvent.endDate),
+              allDay: remoteEvent.allDay,
+              location: remoteEvent.location ?? undefined,
+              color: (remoteEvent.color as EventColor) ?? 'blue',
+              type: remoteEvent.type,
+              recurrence,
+              isDeleted: remoteEvent.isDeleted ?? false,
+              isSynced: true,
+              updatedAt: new Date(remoteUpdatedAt),
+            });
+          }
+        } else if (!existingEvent) {
+          // Может быть только что созданное локально событие, ещё без remoteId (подписка сработала раньше update).
+          const remoteStart = this.toDate(remoteEvent.startDate).getTime();
+          const recentCutoff = Date.now() - 120000; // 2 минуты
+          const localWithoutRemote = localEventsInGroup.find(
+            (e) =>
+              !e.remoteId &&
+              e.startDate.getTime() === remoteStart &&
+              e.title === (remoteEvent.title ?? '') &&
+              e.createdAt.getTime() >= recentCutoff
+          );
+          if (localWithoutRemote) {
+            await eventsStorage.update(localWithoutRemote.id, {
+              remoteId: remoteEvent.id,
+              isSynced: true,
+              updatedAt: this.toDate(remoteEvent.updatedAt ?? new Date()),
+            });
+          } else {
+            const eventId = `event_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const now = new Date();
+            const newEvent = {
+              id: eventId,
+              title: remoteEvent.title ?? '',
+              description: remoteEvent.description ?? undefined,
+              startDate: this.toDate(remoteEvent.startDate),
+              endDate: this.toDate(remoteEvent.endDate),
+              allDay: remoteEvent.allDay ?? false,
+              location: remoteEvent.location ?? undefined,
+              color: (remoteEvent.color as EventColor) ?? 'blue',
+              participants: Array.isArray(remoteEvent.participants) ? remoteEvent.participants : [],
+              type: remoteEvent.type,
+              recurrence,
+              groupId: remoteEvent.groupId ?? groupId,
+              createdBy: remoteEvent.createdBy ?? '',
+              createdAt: this.toDate(remoteEvent.createdAt ?? now),
+              updatedAt: this.toDate(remoteEvent.updatedAt ?? now),
+              isDeleted: remoteEvent.isDeleted ?? false,
+              isSynced: true,
+              remoteId: remoteEvent.id,
+            };
+            await eventsStorage.add(newEvent as any);
+          }
+        }
+      } catch (err) {
+        console.warn('pullChanges: skip event', remoteEvent?.id, err);
       }
     }
   }

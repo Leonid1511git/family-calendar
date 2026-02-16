@@ -3,7 +3,7 @@ import { initializeAuth, getReactNativePersistence, getAuth as getFirebaseAuth, 
 import {
   getFirestore,
   collection,
-  doc,
+  doc as firestoreDoc,
   setDoc,
   updateDoc,
   deleteDoc,
@@ -97,7 +97,7 @@ export const fromTimestamp = (timestamp: Timestamp): number => {
 
 // Firestore operations for users
 export const createUserInFirestore = async (userData: any) => {
-  const userRef = doc(usersRef, userData.id);
+  const userRef = firestoreDoc(usersRef, userData.id);
   await setDoc(userRef, {
     ...userData,
     createdAt: Timestamp.now(),
@@ -107,26 +107,45 @@ export const createUserInFirestore = async (userData: any) => {
 };
 
 export const updateUserInFirestore = async (userId: string, userData: any) => {
-  const userRef = doc(usersRef, userId);
+  const userRef = firestoreDoc(usersRef, userId);
   await updateDoc(userRef, {
     ...userData,
     updatedAt: Timestamp.now(),
   });
 };
 
-// Firestore operations for events
+// Firestore operations for events (только примитивы и Timestamp — вложенные Date ломают запись)
 export const createEventInFirestore = async (eventData: any) => {
-  const eventRef = doc(eventsRef);
-  await setDoc(eventRef, {
-    ...eventData,
-    createdAt: Timestamp.now(),
-    updatedAt: Timestamp.now(),
-  });
-  return eventRef.id;
+  const eventRef = firestoreDoc(eventsRef);
+  const now = Timestamp.now();
+  const eventDoc: Record<string, unknown> = {
+    title: eventData.title ?? '',
+    description: eventData.description ?? null,
+    startDate: eventData.startDate instanceof Timestamp ? eventData.startDate : toTimestamp(eventData.startDate),
+    endDate: eventData.endDate instanceof Timestamp ? eventData.endDate : toTimestamp(eventData.endDate),
+    allDay: eventData.allDay ?? false,
+    location: eventData.location ?? null,
+    color: eventData.color ?? 'blue',
+    type: eventData.type ?? 'event',
+    groupId: eventData.groupId ?? '',
+    createdBy: eventData.createdBy ?? '',
+    isDeleted: eventData.isDeleted ?? false,
+    createdAt: now,
+    updatedAt: now,
+  };
+  if (eventData.participants != null) eventDoc.participants = eventData.participants;
+  if (eventData.recurrence != null) eventDoc.recurrence = eventData.recurrence;
+  try {
+    await setDoc(eventRef, eventDoc);
+    return eventRef.id;
+  } catch (err) {
+    console.error('createEventInFirestore failed:', err);
+    throw err;
+  }
 };
 
 export const updateEventInFirestore = async (eventId: string, eventData: any) => {
-  const eventRef = doc(db, 'events', eventId);
+  const eventRef = firestoreDoc(db, 'events', eventId);
   await updateDoc(eventRef, {
     ...eventData,
     updatedAt: Timestamp.now(),
@@ -134,13 +153,13 @@ export const updateEventInFirestore = async (eventId: string, eventData: any) =>
 };
 
 export const deleteEventFromFirestore = async (eventId: string) => {
-  const eventRef = doc(db, 'events', eventId);
+  const eventRef = firestoreDoc(db, 'events', eventId);
   await deleteDoc(eventRef);
 };
 
 // Group operations
 export const createGroupInFirestore = async (groupData: any) => {
-  const groupRef = doc(groupsRef);
+  const groupRef = firestoreDoc(groupsRef);
   await setDoc(groupRef, {
     ...groupData,
     createdAt: Timestamp.now(),
@@ -150,7 +169,7 @@ export const createGroupInFirestore = async (groupData: any) => {
 };
 
 export const joinGroupInFirestore = async (groupId: string, userId: string, role: string = 'member') => {
-  const memberRef = doc(db, 'groups', groupId, 'members', userId);
+  const memberRef = firestoreDoc(db, 'groups', groupId, 'members', userId);
   await setDoc(memberRef, {
     role,
     joinedAt: Timestamp.now(),
@@ -175,7 +194,7 @@ export const getGroupFromFirestore = async (groupId: string): Promise<{
   members: { userId: string; role: string; joinedAt: Date }[];
   isDefault: boolean;
 } | null> => {
-  const groupRef = doc(db, 'groups', groupId);
+  const groupRef = firestoreDoc(db, 'groups', groupId);
   const groupSnap = await getDoc(groupRef);
   if (!groupSnap.exists()) return null;
   const data = groupSnap.data();
@@ -228,7 +247,7 @@ export const subscribeToGroupEvents = (groupId: string, callback: (events: any[]
 
 // Subscribe to group changes
 export const subscribeToGroup = (groupId: string, callback: (group: any) => void) => {
-  const groupRef = doc(db, 'groups', groupId);
+  const groupRef = firestoreDoc(db, 'groups', groupId);
   return onSnapshot(groupRef, (doc) => {
     if (doc.exists()) {
       callback({
@@ -252,7 +271,7 @@ export const scheduleTelegramNotification = async (data: {
   telegramUserIds: string[]; // array of Telegram user IDs to notify
   groupId: string;
 }) => {
-  const notificationRef = doc(scheduledNotificationsRef);
+  const notificationRef = firestoreDoc(scheduledNotificationsRef);
   await setDoc(notificationRef, {
     ...data,
     eventDate: toTimestamp(data.eventDate),
@@ -293,7 +312,7 @@ export const getGroupTelegramIds = async (groupId: string): Promise<string[]> =>
     // Get users' Telegram IDs
     const telegramIds: string[] = [];
     for (const userId of userIds) {
-      const userRef = doc(db, 'users', userId);
+      const userRef = firestoreDoc(db, 'users', userId);
       const userSnap = await getDoc(userRef);
       if (userSnap.exists()) {
         const userData = userSnap.data();

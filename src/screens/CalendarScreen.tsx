@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import { format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addWeeks, subWeeks, addDays, subDays, startOfDay, startOfMonth, endOfMonth, addMonths, subMonths, isSameMonth, isToday } from 'date-fns';
+import { format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addWeeks, subWeeks, addDays, subDays, startOfDay, endOfDay, startOfMonth, endOfMonth, addMonths, subMonths, isSameMonth, isToday } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { Ionicons } from '@expo/vector-icons';
 import { GestureHandlerRootView, PanGestureHandler, ScrollView as GHScrollView, State } from 'react-native-gesture-handler';
@@ -21,7 +21,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useEvents } from '../context/EventsContext';
 import { useAuth } from '../context/AuthContext';
 import { settingsStorage } from '../database';
-import { CalendarViewMode } from '../types';
+import { CalendarViewMode, Event } from '../types';
 import { DEFAULT_PARTICIPANTS } from '../constants/participants';
 import { isNonWorkingDay } from '../utils/productionCalendar';
 
@@ -40,11 +40,7 @@ export default function CalendarScreen() {
   const translateX = useRef(new Animated.Value(0)).current;
   const weekFlatListRef = useRef<FlatList>(null);
   const weekScrollState = useRef({ contentWidth: 0, layoutWidth: 0 });
-
-  // Get events for the selected date
-  const selectedDateEvents = events.filter(event => 
-    isSameDay(new Date(event.startDate), selectedDate) && !event.isDeleted
-  );
+  const [expandedEvents, setExpandedEvents] = useState<Event[]>([]);
 
   // Get events for week view - show 3 days initially, but allow scrolling to Sunday
   const today = new Date();
@@ -107,6 +103,28 @@ export default function CalendarScreen() {
     }
     return weeks.flat();
   })();
+
+  // Загрузка «развёрнутых» событий (с повторениями) для видимого диапазона
+  useEffect(() => {
+    let cancelled = false;
+    if (viewMode === 'month') {
+      getEventsForDateRange(monthGridStart, monthGridEnd).then((list) => {
+        if (!cancelled) setExpandedEvents(list);
+      });
+    } else if (viewMode === 'week') {
+      getEventsForDateRange(weekStartDay, weekEnd).then((list) => {
+        if (!cancelled) setExpandedEvents(list);
+      });
+    } else {
+      getEventsForDate(selectedDate).then((list) => {
+        if (!cancelled) setExpandedEvents(list);
+      });
+    }
+    return () => { cancelled = true; };
+  }, [viewMode, monthOffset, weekOffset, selectedDate, events, getEventsForDate, getEventsForDateRange, monthGridStart, monthGridEnd, weekStartDay, weekEnd]);
+
+  // События выбранного дня (в day view expandedEvents уже загружены для selectedDate)
+  const selectedDateEvents = viewMode === 'day' ? expandedEvents : [];
 
   // Get date range text for header
   const getDateRangeText = () => {
@@ -226,7 +244,7 @@ export default function CalendarScreen() {
       <TouchableOpacity
         key={event.id}
         style={[styles.eventItem, { backgroundColor: colors.surface }]}
-        onPress={() => navigateToEventDetails(event.id)}
+        onPress={() => navigateToEventDetails((event as Event).parentEventId || event.id)}
       >
         <View style={[styles.eventColorIndicator, { backgroundColor: eventColor }]} />
         <View style={styles.eventContent}>
@@ -283,27 +301,25 @@ export default function CalendarScreen() {
   }, [viewMode, weekOffset]);
 
   const renderWeekView = () => {
-    // Get events for each day
     const getDayEvents = (day: Date) => {
-      return events.filter(e => {
-        if (e.isDeleted) return false;
+      return expandedEvents.filter(e => {
         const eventDate = startOfDay(new Date(e.startDate));
         const dayDate = startOfDay(day);
         return eventDate.getTime() === dayDate.getTime();
       });
     };
 
-    // Render event card for week view
     const renderEventCard = (event: any) => {
       const eventColor = EventColors[event.color];
       const startTime = format(new Date(event.startDate), 'HH:mm');
       const endTime = format(new Date(event.endDate), 'HH:mm');
+      const eventIdForDetails = (event as Event).parentEventId || event.id;
 
       return (
         <TouchableOpacity
           key={event.id}
           style={[styles.weekEventCard, { backgroundColor: colors.surface, borderLeftColor: eventColor }]}
-          onPress={() => navigateToEventDetails(event.id)}
+          onPress={() => navigateToEventDetails(eventIdForDetails)}
         >
           <Text style={[styles.weekEventTitle, { color: colors.text }]} numberOfLines={1}>
             {event.title}
@@ -427,8 +443,7 @@ export default function CalendarScreen() {
   const MONTH_EVENT_TITLE_LEN = 7; // минимум 6–7 символов влезает в бабл
   const renderMonthView = () => {
     const getDayEvents = (day: Date) =>
-      events.filter(e => {
-        if (e.isDeleted) return false;
+      expandedEvents.filter(e => {
         const eventDay = startOfDay(new Date(e.startDate));
         return eventDay.getTime() === startOfDay(day).getTime();
       });
@@ -484,7 +499,7 @@ export default function CalendarScreen() {
                             styles.monthEventBubble,
                             { backgroundColor: (EventColors[ev.color] || colors.primary) + '40', borderLeftColor: EventColors[ev.color] || colors.primary },
                           ]}
-                          onPress={() => navigateToEditEvent(ev.id)}
+                          onPress={() => navigateToEventDetails((ev as Event).parentEventId || ev.id)}
                           activeOpacity={0.7}
                         >
                           <Text style={[styles.monthEventBubbleText, { color: colors.text }]} numberOfLines={1}>

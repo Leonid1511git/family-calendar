@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { eventsStorage, settingsStorage } from '../database';
 import { Event, EventColor, RecurrenceRule, ParsedVoiceData, Participant } from '../types';
-import { addDays, addWeeks, addMonths, isBefore, isAfter, startOfDay, format } from 'date-fns';
+import { addDays, addWeeks, addMonths, isBefore, isAfter, startOfDay, endOfDay, format } from 'date-fns';
 import { syncService } from '../services/syncService';
 import { notificationService } from '../services/notificationService';
 import { subscribeToGroupEvents, getGroupEventsFromFirestore } from '../services/firebase';
@@ -96,26 +96,31 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Reload events when group changes
-  useEffect(() => {
-    if (group) {
-      loadEvents();
-    }
-  }, [group?.id]);
-
-  // Подписка на события группы в Firestore (события из бота попадают в календарь).
-  // Явная загрузка при старте восстанавливает события после переустановки APK (когда локальное хранилище пусто).
+  // Загрузка событий при появлении группы: сначала подтягиваем из Firestore (восстановление после переустановки),
+  // затем подписка на обновления в реальном времени. Без группы — очищаем список.
   useEffect(() => {
     const ids = [...new Set([group?.id, user?.currentGroupId].filter(Boolean))] as string[];
-    if (ids.length === 0) return;
+    if (ids.length === 0) {
+      loadEvents();
+      return;
+    }
 
-    // Разовая загрузка из Firestore при появлении группы — после переустановки события восстанавливаются.
-    ids.forEach((groupId) => {
-      getGroupEventsFromFirestore(groupId)
-        .then((firestoreEvents) => syncService.pullChanges(groupId, firestoreEvents))
-        .then(() => loadEvents())
-        .catch((err) => console.error('Initial load events from Firestore failed:', err));
-    });
+    let cancelled = false;
+    const runInitialPull = async () => {
+      for (const groupId of ids) {
+        if (cancelled) return;
+        try {
+          const firestoreEvents = await getGroupEventsFromFirestore(groupId);
+          if (cancelled) return;
+          await syncService.pullChanges(groupId, firestoreEvents);
+          if (cancelled) return;
+          await loadEvents();
+        } catch (err) {
+          console.error('Initial load events from Firestore failed:', err);
+        }
+      }
+    };
+    runInitialPull();
 
     const unsubscribes = ids.map((groupId) =>
       subscribeToGroupEvents(groupId, (firestoreEvents) => {
@@ -126,7 +131,10 @@ export function EventsProvider({ children }: { children: ReactNode }) {
       })
     );
 
-    return () => unsubscribes.forEach((unsub) => unsub());
+    return () => {
+      cancelled = true;
+      unsubscribes.forEach((unsub) => unsub());
+    };
   }, [group?.id, user?.currentGroupId, loadEvents]);
 
   const loadEvents = useCallback(async () => {
@@ -182,9 +190,30 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     await eventsStorage.add(newEvent);
     await loadEvents();
 
+    const syncPayload = {
+      title: eventData.title,
+      description: eventData.description,
+      startDate: eventData.startDate.getTime(),
+      endDate: eventData.endDate.getTime(),
+      allDay: eventData.allDay,
+      location: eventData.location,
+      color: eventData.color,
+      type: eventData.type,
+      recurrence: eventData.recurrence,
+      groupId: eventData.groupId,
+      createdBy: eventData.createdBy,
+      isDeleted: false,
+    };
+
+    // Сначала пробуем сразу записать в Firestore (при наличии сети)
+    const remoteId = await syncService.createEventImmediate(newEvent.id, syncPayload);
+    if (remoteId == null) {
+      // Не получилось — кладём в очередь на повтор
+      await syncService.queueOperation('create', 'events', newEvent.id, syncPayload);
+    }
+
     // Schedule Telegram notification - only if event is in the future
     if (!eventData.allDay && eventData.startDate > new Date()) {
-      // Use reminderTime from eventData or default to 4320 (3 days)
       const reminderMinutes = eventData.reminderTime || 4320;
       const triggerDate = new Date(eventData.startDate.getTime() - reminderMinutes * 60 * 1000);
       if (triggerDate > new Date()) {
@@ -200,22 +229,6 @@ export function EventsProvider({ children }: { children: ReactNode }) {
         }
       }
     }
-
-    // Queue for sync
-    await syncService.queueOperation('create', 'events', newEvent.id, {
-      title: eventData.title,
-      description: eventData.description,
-      startDate: eventData.startDate.getTime(),
-      endDate: eventData.endDate.getTime(),
-      allDay: eventData.allDay,
-      location: eventData.location,
-      color: eventData.color,
-      type: eventData.type,
-      recurrence: eventData.recurrence,
-      groupId: eventData.groupId,
-      createdBy: eventData.createdBy,
-      isDeleted: false,
-    });
 
     // Notify group members (Telegram); учитываем настройку «уведомлять о своих действиях»
     if (user && group) {
@@ -344,28 +357,27 @@ export function EventsProvider({ children }: { children: ReactNode }) {
       );
     }
 
+    const queueDelete = () =>
+      syncService.queueOperation('delete', 'events', id, { remoteId: event.remoteId });
+
     if (event.type === 'recurring' && deleteSeries && event.remoteId) {
-      // Delete entire series
       await eventsStorage.update(id, {
         isDeleted: true,
         isSynced: false,
         updatedAt: new Date(),
       });
-
-      await syncService.queueOperation('delete', 'events', id, {
-        remoteId: event.remoteId,
-      });
+      const deleted = await syncService.deleteEventImmediate(event.remoteId);
+      if (!deleted) await queueDelete();
     } else {
-      // Delete single instance
       await eventsStorage.update(id, {
         isDeleted: true,
         isSynced: false,
         updatedAt: new Date(),
       });
-
-      await syncService.queueOperation('delete', 'events', id, {
-        remoteId: event.remoteId,
-      });
+      if (event.remoteId) {
+        const deleted = await syncService.deleteEventImmediate(event.remoteId);
+        if (!deleted) await queueDelete();
+      }
     }
 
     // Reload events immediately to update UI
@@ -392,21 +404,6 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const getEventsForDate = useCallback(async (date: Date): Promise<Event[]> => {
-    const startOfDayTime = startOfDay(date).getTime();
-    const endOfDayTime = startOfDayTime + 24 * 60 * 60 * 1000;
-    
-    const allEvents = await eventsStorage.getAll();
-    const groupIds = [group?.id, user?.currentGroupId].filter(Boolean) as string[];
-    
-    return allEvents
-      .filter(event => {
-        if (event.isDeleted || (groupIds.length > 0 && !groupIds.includes(event.groupId))) return false;
-        const eventStart = event.startDate.getTime();
-        return eventStart >= startOfDayTime && eventStart < endOfDayTime;
-      });
-  }, [user, group]);
-
   const getEventsForDateRange = useCallback(async (startDate: Date, endDate: Date): Promise<Event[]> => {
     const allEvents = await eventsStorage.getAll();
     const groupIds = [group?.id, user?.currentGroupId].filter(Boolean) as string[];
@@ -428,6 +425,10 @@ export function EventsProvider({ children }: { children: ReactNode }) {
 
     return result.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
   }, [user, group]);
+
+  const getEventsForDate = useCallback(async (date: Date): Promise<Event[]> => {
+    return getEventsForDateRange(startOfDay(date), endOfDay(date));
+  }, [getEventsForDateRange]);
 
   const syncPendingChanges = useCallback(async () => {
     await syncService.syncPendingChanges();
