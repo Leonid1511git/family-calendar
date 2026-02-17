@@ -5,6 +5,7 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   Switch,
   Platform,
   Alert,
@@ -431,7 +432,8 @@ export default function EditEventScreen() {
       <StatusBar style={isDark ? 'light' : 'dark'} />
       {isSaving && <CalendarPageLoader fullScreen />}
       
-      <View style={styles.scrollContent}>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <View style={styles.scrollContent}>
         {/* Title */}
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Название</Text>
@@ -698,7 +700,8 @@ export default function EditEventScreen() {
         >
           <Text style={styles.saveButtonText}>Сохранить изменения</Text>
         </TouchableOpacity>
-      </View>
+        </View>
+      </TouchableWithoutFeedback>
 
       {/* Date/Time Pickers — на iOS в Modal с кнопкой «Готово» */}
       {Platform.OS === 'ios' ? (

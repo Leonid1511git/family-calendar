@@ -245,11 +245,13 @@ class SyncService {
     return new Date(v);
   }
 
-  // Pull changes from Firestore (не воскрешаем локально удалённые события)
+  // Pull changes from Firestore (не воскрешаем локально удалённые события).
+  // Локальные события с remoteId, которого нет в remoteEvents, считаем удалёнными в облаке — помечаем isDeleted.
   public async pullChanges(groupId: string, remoteEvents: any[]) {
     const allEvents = await eventsStorage.getAll();
     const localEventsInGroup = allEvents.filter(e => e.groupId === groupId);
     const localEventsNonDeleted = localEventsInGroup.filter(e => !e.isDeleted);
+    const remoteIds = new Set(remoteEvents.map((e: any) => e.id));
 
     for (const remoteEvent of remoteEvents) {
       try {
@@ -324,6 +326,16 @@ class SyncService {
         }
       } catch (err) {
         console.warn('pullChanges: skip event', remoteEvent?.id, err);
+      }
+    }
+
+    // События, удалённые в Firestore (документ удалён), должны стать удалёнными локально на всех устройствах.
+    for (const local of localEventsInGroup) {
+      if (local.remoteId && !local.isDeleted && !remoteIds.has(local.remoteId)) {
+        await eventsStorage.update(local.id, {
+          isDeleted: true,
+          updatedAt: new Date(),
+        });
       }
     }
   }

@@ -5,6 +5,7 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   Switch,
   Platform,
   Alert,
@@ -484,7 +485,8 @@ export default function CreateEventScreen() {
       <StatusBar style={isDark ? 'light' : 'dark'} />
       {isSaving && <CalendarPageLoader fullScreen />}
       
-      <View style={styles.scrollContent}>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <View style={styles.scrollContent}>
         {/* Title */}
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Название</Text>
@@ -779,7 +781,8 @@ export default function CreateEventScreen() {
         >
           <Text style={styles.saveButtonText}>Создать событие</Text>
         </TouchableOpacity>
-      </View>
+        </View>
+      </TouchableWithoutFeedback>
 
       {/* Date/Time Pickers — на iOS в Modal с кнопкой «Готово», иначе пикер может не реагировать */}
       {Platform.OS === 'ios' ? (
