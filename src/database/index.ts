@@ -8,6 +8,7 @@ const USERS_KEY = '@users';
 const SYNC_QUEUE_KEY = '@sync_queue';
 const NOTIFY_OWN_ACTIONS_KEY = '@notify_own_actions';
 const DEFAULT_CALENDAR_VIEW_KEY = '@default_calendar_view';
+const DEFAULT_REMINDER_TIME_KEY = '@default_reminder_time';
 
 // Sync Queue Item interface
 export interface SyncQueueItem {
@@ -260,6 +261,21 @@ export const settingsStorage = {
   },
   async setDefaultCalendarView(value: 'month' | 'week' | 'day'): Promise<void> {
     await AsyncStorage.setItem(DEFAULT_CALENDAR_VIEW_KEY, value);
+  },
+  /** Время напоминания по умолчанию — подставляется при создании нового события (предвыбор в форме). */
+  async getDefaultReminderTime(): Promise<number> {
+    try {
+      const v = await AsyncStorage.getItem(DEFAULT_REMINDER_TIME_KEY);
+      if (v === null) return 4320; // 3 дня
+      const n = parseInt(v, 10);
+      const allowed = [15, 60, 180, 720, 1440, 4320];
+      return allowed.includes(n) ? n : 4320;
+    } catch {
+      return 4320;
+    }
+  },
+  async setDefaultReminderTime(value: number): Promise<void> {
+    await AsyncStorage.setItem(DEFAULT_REMINDER_TIME_KEY, String(value));
   },
 };
 

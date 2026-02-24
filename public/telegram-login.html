@@ -51,7 +51,9 @@
         goBtn.style.display = 'none';
         return;
       }
-      var origin = window.location.origin;
+      // Домен для Telegram берём из параметра origin (передаётся из приложения), чтобы не зависеть от редиректов и WebView
+      var origin = params.get('origin') || window.location.origin;
+      if (origin.endsWith('/')) origin = origin.slice(0, -1);
       var returnTo = origin + '/telegram-callback.html?redirect_uri=' + encodeURIComponent(redirectUri);
       var authUrl = 'https://oauth.telegram.org/auth?' + new URLSearchParams({
         bot_id: botId,

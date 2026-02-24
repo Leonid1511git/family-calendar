@@ -94,7 +94,7 @@
 - `EXPO_PUBLIC_TELEGRAM_BOT_NAME` — имя бота (по умолчанию `FamilyCalendarApp_bot`).
 - `EXPO_PUBLIC_TELEGRAM_AUTH_PROXY_URL` — URL страницы входа (по умолчанию `https://family-calendar-22abd.web.app`).
 
-**Локальная разработка:** создайте в корне проекта файл `.env` (он в .gitignore) и добавьте строку:
+**Локальная разработка:** создайте в корне проекта файл `.env.calendar` (скопируйте из `.env.calendar.example`; он в .gitignore) и добавьте строку:
 `EXPO_PUBLIC_TELEGRAM_BOT_TOKEN=ваш_токен`
 
 ---

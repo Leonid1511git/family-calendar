@@ -11,6 +11,7 @@ import {
   Alert,
   Keyboard,
   Modal,
+  ScrollView,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -27,6 +28,7 @@ import { CalendarPageLoader } from '../components';
 import { EventColor, RecurrenceRule, ParsedVoiceData, ReminderTime, Participant } from '../types';
 import { REMINDER_OPTIONS } from '../services/notificationService';
 import { DEFAULT_PARTICIPANTS } from '../constants/participants';
+import { settingsStorage } from '../database';
 
 const STEP_MINUTES = 15;
 const roundTo15Min = (d: Date): Date => {
@@ -87,7 +89,7 @@ export default function CreateEventScreen() {
   const [selectedColor, setSelectedColor] = useState<EventColor>('blue');
   const [selectedParticipants, setSelectedParticipants] = useState<Participant[]>([]);
   const [recurrence, setRecurrence] = useState<RecurrenceRule | null>(null);
-  const [reminderTime, setReminderTime] = useState<ReminderTime>(4320); // 3 days default
+  const [reminderTime, setReminderTime] = useState<ReminderTime>(4320); // предвыбор из настроек подставится в useEffect
   const [duration, setDuration] = useState<number>(60); // Duration in minutes, default 1 hour
   
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
@@ -98,6 +100,13 @@ export default function CreateEventScreen() {
   const [showReminderPicker, setShowReminderPicker] = useState(false);
   const [showDurationPicker, setShowDurationPicker] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Предвыбор напоминания из настроек (значение «по умолчанию для новых событий»)
+  useEffect(() => {
+    settingsStorage.getDefaultReminderTime().then((defaultMinutes) => {
+      setReminderTime(defaultMinutes as ReminderTime);
+    });
+  }, []);
 
   // Update endDate when startDate or duration changes
   useEffect(() => {
@@ -437,13 +446,17 @@ export default function CreateEventScreen() {
       fontSize: FontSize.md,
       color: colors.text,
     },
-    pickerOptions: {
+    pickerOptionsScroll: {
       marginTop: Spacing.sm,
+      maxHeight: 300,
       backgroundColor: colors.surface,
       borderRadius: BorderRadius.lg,
       borderWidth: 1,
       borderColor: colors.border,
       overflow: 'hidden',
+    },
+    pickerOptions: {
+      paddingBottom: Spacing.sm,
     },
     pickerOption: {
       paddingVertical: Spacing.sm,
@@ -745,7 +758,12 @@ export default function CreateEventScreen() {
           </TouchableOpacity>
           
           {showReminderPicker && (
-            <View style={styles.pickerOptions}>
+            <ScrollView
+              style={styles.pickerOptionsScroll}
+              contentContainerStyle={styles.pickerOptions}
+              nestedScrollEnabled
+              keyboardShouldPersistTaps="handled"
+            >
               {REMINDER_OPTIONS.map((option) => (
                 <TouchableOpacity
                   key={option.value}
@@ -769,7 +787,7 @@ export default function CreateEventScreen() {
                   </Text>
                 </TouchableOpacity>
               ))}
-            </View>
+            </ScrollView>
           )}
         </View>
 

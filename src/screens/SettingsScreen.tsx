@@ -36,6 +36,7 @@ export default function SettingsScreen() {
   useEffect(() => {
     settingsStorage.getNotifyOwnActions().then(setNotifyOwnActions);
     settingsStorage.getDefaultCalendarView().then(setDefaultCalendarView);
+    settingsStorage.getDefaultReminderTime().then(setReminderTime);
   }, []);
 
   const handleLogout = () => {
@@ -469,7 +470,7 @@ export default function SettingsScreen() {
         {/* Reminder Time Options */}
         {notifications.reminders && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Время напоминания</Text>
+            <Text style={styles.sectionTitle}>По умолчанию для новых событий</Text>
             <View style={styles.reminderOptions}>
               {reminderOptions.map((option) => (
                 <TouchableOpacity
@@ -478,7 +479,10 @@ export default function SettingsScreen() {
                     styles.reminderOption,
                     reminderTime === option.value && styles.reminderOptionActive,
                   ]}
-                  onPress={() => setReminderTime(option.value)}
+                  onPress={() => {
+                  setReminderTime(option.value);
+                  settingsStorage.setDefaultReminderTime(option.value);
+                }}
                 >
                   <Text
                     style={[

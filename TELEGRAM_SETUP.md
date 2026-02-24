@@ -44,7 +44,7 @@ export const TELEGRAM_CONFIG = {
 
 ### Вариант 2: Через переменные окружения (рекомендуется для production)
 
-1. Создайте файл `.env` в корне проекта:
+1. Создайте файл `.env.calendar` в корне проекта (скопируйте из `.env.calendar.example`; в этом проекте используется именно он, чтобы не путать с env-файлами соседних проектов):
 ```
 TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
 TELEGRAM_BOT_NAME=my_family_calendar_bot
@@ -102,7 +102,7 @@ const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 ⚠️ **ВАЖНО:**
 - НИКОГДА не коммитьте файл `src/config/telegram.ts` с реальным токеном в git
 - Файл уже добавлен в `.gitignore`
-- Используйте `.env` файлы для production
+- Используйте `.env.calendar` (в корне этого проекта) или секреты Firebase для production
 - Храните токены в секретах Firebase для Cloud Functions
 
 ## Что дальше?

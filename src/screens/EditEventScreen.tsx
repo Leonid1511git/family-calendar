@@ -11,6 +11,7 @@ import {
   Alert,
   Keyboard,
   Modal,
+  ScrollView,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -384,13 +385,17 @@ export default function EditEventScreen() {
       fontSize: FontSize.md,
       color: colors.text,
     },
-    pickerOptions: {
+    pickerOptionsScroll: {
       marginTop: Spacing.sm,
+      maxHeight: 300,
       backgroundColor: colors.surface,
       borderRadius: BorderRadius.lg,
       borderWidth: 1,
       borderColor: colors.border,
       overflow: 'hidden',
+    },
+    pickerOptions: {
+      paddingBottom: Spacing.sm,
     },
     pickerOption: {
       paddingVertical: Spacing.sm,
@@ -664,7 +669,12 @@ export default function EditEventScreen() {
           </TouchableOpacity>
           
           {showReminderPicker && (
-            <View style={styles.pickerOptions}>
+            <ScrollView
+              style={styles.pickerOptionsScroll}
+              contentContainerStyle={styles.pickerOptions}
+              nestedScrollEnabled
+              keyboardShouldPersistTaps="handled"
+            >
               {REMINDER_OPTIONS.map((option) => (
                 <TouchableOpacity
                   key={option.value}
@@ -688,7 +698,7 @@ export default function EditEventScreen() {
                   </Text>
                 </TouchableOpacity>
               ))}
-            </View>
+            </ScrollView>
           )}
         </View>
 

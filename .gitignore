@@ -12,6 +12,7 @@ web-build/
 
 # Локальные переменные с токенами (не коммитить)
 .env
+.env.calendar
 .env.local
 .env.*.local
 

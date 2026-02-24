@@ -291,21 +291,16 @@ export default function CalendarScreen() {
     settingsStorage.getDefaultCalendarView().then(setViewMode);
   }, []);
 
-  // Scroll to start of week on mount or when week changes
-  useEffect(() => {
-    if (viewMode === 'week' && weekFlatListRef.current) {
-      setTimeout(() => {
-        weekFlatListRef.current?.scrollToOffset({ offset: 0, animated: false });
-      }, 100);
-    }
-  }, [viewMode, weekOffset]);
+  // При смене недели FlatList пересоздаётся по key — сразу показывается начало недели без перемотки
 
   const renderWeekView = () => {
     const getDayEvents = (day: Date) => {
+      const dayStart = startOfDay(day);
+      const dayEnd = endOfDay(day);
       return expandedEvents.filter(e => {
-        const eventDate = startOfDay(new Date(e.startDate));
-        const dayDate = startOfDay(day);
-        return eventDate.getTime() === dayDate.getTime();
+        const start = new Date(e.startDate);
+        const end = new Date(e.endDate);
+        return start.getTime() <= dayEnd.getTime() && end.getTime() >= dayStart.getTime();
       });
     };
 
@@ -360,9 +355,6 @@ export default function CalendarScreen() {
 
     const dayColumnWidth = SCREEN_WIDTH / 3;
     const totalContentWidth = weekDays.length * dayColumnWidth;
-    // #region agent log
-    __DEV__ && fetch('http://127.0.0.1:7242/ingest/7f9949bb-083d-4b4a-87ed-e303213be9b4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CalendarScreen.tsx:renderWeekView',message:'week FlatList data',data:{weekDaysLength:weekDays.length,dayColumnWidth,SCREEN_WIDTH,totalContentWidth,canScroll:totalContentWidth>SCREEN_WIDTH},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-    // #endregion
     const renderDayColumn = ({ item: day, index }: { item: Date; index: number }) => {
       const dayEvents = getDayEvents(day);
       const hasEvents = dayEvents.length > 0;
@@ -410,14 +402,16 @@ export default function CalendarScreen() {
     return (
       <View style={[styles.weekViewContainer, viewMode === 'week' && panResponder.panHandlers]}>
         <FlatList
+          key={`week-${weekOffset}`}
           ref={weekFlatListRef}
           data={weekDays}
           keyExtractor={(_, index) => String(index)}
           renderItem={renderDayColumn}
           horizontal
           showsHorizontalScrollIndicator={true}
-          contentContainerStyle={styles.weekScrollContent}
-          style={styles.weekScrollView}
+          initialScrollIndex={0}
+          contentContainerStyle={[styles.weekScrollContent, { minWidth: totalContentWidth }]}
+          style={[styles.weekScrollView, { width: SCREEN_WIDTH }]}
           getItemLayout={(_: any, index: number) => ({
             length: dayColumnWidth,
             offset: dayColumnWidth * index,
@@ -442,11 +436,15 @@ export default function CalendarScreen() {
 
   const MONTH_EVENT_TITLE_LEN = 7; // минимум 6–7 символов влезает в бабл
   const renderMonthView = () => {
-    const getDayEvents = (day: Date) =>
-      expandedEvents.filter(e => {
-        const eventDay = startOfDay(new Date(e.startDate));
-        return eventDay.getTime() === startOfDay(day).getTime();
+    const getDayEvents = (day: Date) => {
+      const dayStart = startOfDay(day);
+      const dayEnd = endOfDay(day);
+      return expandedEvents.filter(e => {
+        const start = new Date(e.startDate);
+        const end = new Date(e.endDate);
+        return start.getTime() <= dayEnd.getTime() && end.getTime() >= dayStart.getTime();
       });
+    };
     const truncate = (s: string) =>
       s.length <= MONTH_EVENT_TITLE_LEN ? s : s.slice(0, MONTH_EVENT_TITLE_LEN) + '…';
     const weekDaysLabels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];

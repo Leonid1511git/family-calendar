@@ -89,6 +89,21 @@ export default function AuthScreen() {
       );
       return;
     }
+    const proxyUrl = (TELEGRAM_CONFIG.AUTH_PROXY_URL || '').trim();
+    if (!proxyUrl || !proxyUrl.startsWith('https://')) {
+      Alert.alert(
+        'Не настроен домен входа',
+        'AUTH_PROXY_URL должен быть HTTPS-адресом (например https://family-calendar-22abd.web.app). Проверьте EXPO_PUBLIC_TELEGRAM_AUTH_PROXY_URL в EAS и пересоберите приложение.'
+      );
+      return;
+    }
+    let origin: string;
+    try {
+      origin = new URL(proxyUrl).origin;
+    } catch {
+      Alert.alert('Ошибка', 'Некорректный AUTH_PROXY_URL.');
+      return;
+    }
     setIsLoading(true);
     try {
       const redirectUri = AuthSession.makeRedirectUri({
@@ -97,13 +112,12 @@ export default function AuthScreen() {
       });
 
       const botId = TELEGRAM_CONFIG.BOT_TOKEN.split(':')[0];
-      const proxyUrl = TELEGRAM_CONFIG.AUTH_PROXY_URL;
       const authUrl = `${proxyUrl}/telegram-login.html?redirect_uri=${encodeURIComponent(
         redirectUri
-      )}&bot_id=${botId}`;
+      )}&bot_id=${encodeURIComponent(botId)}&origin=${encodeURIComponent(origin)}`;
 
       // #region agent log
-      __DEV__ && fetch('http://127.0.0.1:7242/ingest/7f9949bb-083d-4b4a-87ed-e303213be9b4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthScreen.tsx:handleTelegramLogin',message:'Opening Telegram login',data:{AUTH_PROXY_URL:proxyUrl,redirectUri,authUrlLength:authUrl.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+      __DEV__ && fetch('http://127.0.0.1:7242/ingest/7f9949bb-083d-4b4a-87ed-e303213be9b4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthScreen.tsx:handleTelegramLogin',message:'Opening Telegram login',data:{AUTH_PROXY_URL:proxyUrl,origin,authUrlLength:authUrl.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
       // #endregion
 
       // На Android release Linking.openURL иногда не открывает браузер — используем WebBrowser

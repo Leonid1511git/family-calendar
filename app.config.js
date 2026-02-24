@@ -1,5 +1,8 @@
+// В этом проекте переменные окружения хранятся в .env.calendar (чтобы не путать с соседними проектами).
 // Подставляем переменные EAS в extra при сборке (EAS задаёт env перед запуском).
 // В приложении читаем через Constants.expoConfig?.extra?.telegram.
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '.env.calendar') });
 const base = require('./app.json');
 
 module.exports = {
