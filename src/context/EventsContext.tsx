@@ -18,6 +18,8 @@ type EventsContextType = {
   getEventsForDate: (date: Date) => Promise<Event[]>;
   getEventsForDateRange: (startDate: Date, endDate: Date) => Promise<Event[]>;
   syncPendingChanges: () => Promise<void>;
+  /** Принудительно стянуть все события группы из Firestore (для восстановления после переустановки). */
+  forcePullFromServer: () => Promise<void>;
 };
 
 const EventsContext = createContext<EventsContextType | undefined>(undefined);
@@ -98,6 +100,7 @@ export function EventsProvider({ children }: { children: ReactNode }) {
 
   // Загрузка событий при появлении группы: сначала подтягиваем из Firestore (восстановление после переустановки),
   // затем подписка на обновления в реальном времени. Без группы — очищаем список.
+  // На iOS после переустановки Firestore auth может подхватиться с задержкой — делаем один повтор через 1.5 с при ошибке.
   useEffect(() => {
     const ids = [...new Set([group?.id, user?.currentGroupId].filter(Boolean))] as string[];
     if (ids.length === 0) {
@@ -106,7 +109,7 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     }
 
     let cancelled = false;
-    const runInitialPull = async () => {
+    const runInitialPull = async (isRetry = false) => {
       for (const groupId of ids) {
         if (cancelled) return;
         try {
@@ -115,8 +118,15 @@ export function EventsProvider({ children }: { children: ReactNode }) {
           await syncService.pullChanges(groupId, firestoreEvents);
           if (cancelled) return;
           await loadEvents();
+          return;
         } catch (err) {
           console.error('Initial load events from Firestore failed:', err);
+          if (!isRetry && !cancelled) {
+            await new Promise((r) => setTimeout(r, 1500));
+            if (!cancelled) await runInitialPull(true);
+          }
+        } finally {
+          if (!cancelled) loadEvents();
         }
       }
     };
@@ -435,6 +445,21 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     await loadEvents();
   }, []);
 
+  const forcePullFromServer = useCallback(async () => {
+    const ids = [...new Set([group?.id, user?.currentGroupId].filter(Boolean))] as string[];
+    if (ids.length === 0) return;
+    for (const groupId of ids) {
+      try {
+        const firestoreEvents = await getGroupEventsFromFirestore(groupId);
+        await syncService.pullChanges(groupId, firestoreEvents);
+        await loadEvents();
+      } catch (err) {
+        console.error('Force pull from Firestore failed:', err);
+        throw err;
+      }
+    }
+  }, [group?.id, user?.currentGroupId, loadEvents]);
+
   return (
     <EventsContext.Provider
       value={{
@@ -448,6 +473,7 @@ export function EventsProvider({ children }: { children: ReactNode }) {
         getEventsForDate,
         getEventsForDateRange,
         syncPendingChanges,
+        forcePullFromServer,
       }}
     >
       {children}

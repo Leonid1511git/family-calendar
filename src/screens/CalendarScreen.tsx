@@ -30,8 +30,9 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 export default function CalendarScreen() {
   const navigation = useNavigation();
   const { colors, isDark, EventColors, Spacing, BorderRadius, FontSize, FontWeight } = useTheme();
-  const { events, getEventsForDate, getEventsForDateRange, syncStatus } = useEvents();
+  const { events, getEventsForDate, getEventsForDateRange, syncStatus, forcePullFromServer } = useEvents();
   const { group, user } = useAuth();
+  const [isForceSyncing, setIsForceSyncing] = useState(false);
   
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<CalendarViewMode>('month');
@@ -219,20 +220,49 @@ export default function CalendarScreen() {
     })
   ).current;
 
-  // Sync status icon
-  const getSyncIcon = () => {
-    switch (syncStatus) {
-      case 'synced':
-        return <Ionicons name="cloud-done" size={20} color={colors.success} />;
-      case 'syncing':
-        return <Ionicons name="cloud-upload" size={20} color={colors.warning} />;
-      case 'error':
-        return <Ionicons name="cloud-offline" size={20} color={colors.error} />;
-      case 'offline':
-        return <Ionicons name="cloud-offline" size={20} color={colors.textTertiary} />;
-      default:
-        return null;
+  const handleForceSync = useCallback(async () => {
+    if (isForceSyncing) return;
+    setIsForceSyncing(true);
+    try {
+      await forcePullFromServer();
+    } catch (e) {
+      console.warn('Force sync failed:', e);
+    } finally {
+      setIsForceSyncing(false);
     }
+  }, [forcePullFromServer, isForceSyncing]);
+
+  // Sync status icon (кликабельная — принудительная синхронизация с сервером)
+  const getSyncIcon = () => {
+    const icon =
+      isForceSyncing ? (
+        <Ionicons name="cloud-upload" size={20} color={colors.warning} />
+      ) : (
+        (() => {
+          switch (syncStatus) {
+            case 'synced':
+              return <Ionicons name="cloud-done" size={20} color={colors.success} />;
+            case 'syncing':
+              return <Ionicons name="cloud-upload" size={20} color={colors.warning} />;
+            case 'error':
+              return <Ionicons name="cloud-offline" size={20} color={colors.error} />;
+            case 'offline':
+              return <Ionicons name="cloud-offline" size={20} color={colors.textTertiary} />;
+            default:
+              return null;
+          }
+        })()
+      );
+    return (
+      <TouchableOpacity
+        onPress={handleForceSync}
+        disabled={isForceSyncing}
+        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        accessibilityLabel="Синхронизировать события с сервером"
+      >
+        {icon}
+      </TouchableOpacity>
+    );
   };
 
   const renderEventItem = (event: any) => {
