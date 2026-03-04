@@ -7,6 +7,7 @@ import { NavigationContainer } from '@react-navigation/native';
 
 import { ThemeProvider, AuthProvider, EventsProvider } from './src/context';
 import { ensureAuthInit, getAuthAsync } from './src/services/firebase';
+import { initAppLogger } from './src/utils/appLogger';
 import AppNavigator from './src/navigation/AppNavigator';
 import { useTheme } from './src/context/ThemeContext';
 
@@ -92,6 +93,7 @@ function AppContent() {
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
+    initAppLogger();
     initializeApp();
   }, []);
 

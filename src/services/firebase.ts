@@ -225,13 +225,24 @@ const groupEventsQuery = (groupId: string) => query(
   orderBy('startDate', 'asc')
 );
 
+const EVENTS_SYNC_LOG = '[EventsSync]';
+
 /** Загружает все события группы из Firestore (для восстановления после переустановки). */
 export const getGroupEventsFromFirestore = async (groupId: string): Promise<any[]> => {
-  const snapshot = await getDocs(groupEventsQuery(groupId));
-  return snapshot.docs.map(doc => ({
-    id: doc.id,
-    ...doc.data(),
-  }));
+  try {
+    const snapshot = await getDocs(groupEventsQuery(groupId));
+    const events = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+    console.log(EVENTS_SYNC_LOG, 'getGroupEventsFromFirestore', groupId, 'count', events.length);
+    return events;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const code = err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : '';
+    console.warn(EVENTS_SYNC_LOG, 'getGroupEventsFromFirestore FAILED', { groupId, error: msg, code });
+    throw err;
+  }
 };
 
 // Subscribe to group events

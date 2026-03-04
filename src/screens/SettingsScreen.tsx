@@ -8,6 +8,8 @@ import {
   Switch,
   Alert,
   Linking,
+  Share,
+  Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,6 +20,8 @@ import { Spacing, BorderRadius, FontSize, FontWeight } from '../constants/theme'
 import { ThemeType } from '../types';
 import { settingsStorage } from '../database';
 import { CalendarViewMode } from '../types';
+import * as FileSystem from 'expo-file-system/legacy';
+import { getLogsAsText } from '../utils/appLogger';
 
 export default function SettingsScreen() {
   const { theme, setTheme, isDark, colors } = useTheme();
@@ -32,12 +36,43 @@ export default function SettingsScreen() {
   const [notifyOwnActions, setNotifyOwnActions] = useState(true);
   const [reminderTime, setReminderTime] = useState(4320); // 3 days default
   const [defaultCalendarView, setDefaultCalendarView] = useState<CalendarViewMode>('month');
+  const [isExportingLogs, setIsExportingLogs] = useState(false);
 
   useEffect(() => {
     settingsStorage.getNotifyOwnActions().then(setNotifyOwnActions);
     settingsStorage.getDefaultCalendarView().then(setDefaultCalendarView);
     settingsStorage.getDefaultReminderTime().then(setReminderTime);
   }, []);
+
+  const handleExportLogs = async () => {
+    if (isExportingLogs) return;
+    setIsExportingLogs(true);
+    try {
+      const content = getLogsAsText();
+      const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const fileName = `family-calendar-logs-${dateStr}.txt`;
+      const cacheDir = FileSystem.cacheDirectory ?? '';
+
+      try {
+        const fileUri = cacheDir + fileName;
+        await FileSystem.writeAsStringAsync(fileUri, content);
+        await Share.share({
+          url: fileUri,
+          title: 'Логи приложения',
+          message: Platform.OS === 'android' ? content.slice(0, 500) + '…' : undefined,
+        });
+      } catch (_fileErr) {
+        await Share.share({
+          message: content,
+          title: 'Логи приложения',
+        });
+      }
+    } catch (e) {
+      Alert.alert('Ошибка', 'Не удалось экспортировать логи. Попробуйте ещё раз.');
+    } finally {
+      setIsExportingLogs(false);
+    }
+  };
 
   const handleLogout = () => {
     Alert.alert(
@@ -497,6 +532,29 @@ export default function SettingsScreen() {
             </View>
           </View>
         )}
+
+        {/* Diagnostics */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Диагностика</Text>
+          <View style={styles.card}>
+            <TouchableOpacity
+              style={styles.settingItem}
+              onPress={handleExportLogs}
+              disabled={isExportingLogs}
+              activeOpacity={0.7}
+            >
+              <View style={styles.settingLeft}>
+                <View style={styles.settingIcon}>
+                  <Ionicons name="document-text-outline" size={18} color={colors.primary} />
+                </View>
+                <Text style={styles.settingText}>
+                  {isExportingLogs ? 'Подготовка…' : 'Скачать логи'}
+                </Text>
+              </View>
+              <Ionicons name="download-outline" size={20} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+        </View>
 
         {/* About Section */}
         <View style={styles.section}>

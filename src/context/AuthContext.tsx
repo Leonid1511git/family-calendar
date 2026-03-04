@@ -140,6 +140,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (!existing) await groupsStorage.add(groupToSet);
         }
       }
+      if (parsedUser && !groupToSet) {
+        console.warn('[Auth] loadAuthData: user present but no group, setting fallback default-family');
+        groupToSet = {
+          id: DEFAULT_GROUP_ID,
+          name: 'Семья',
+          createdBy: '',
+          createdAt: new Date(),
+          members: [],
+          isDefault: true,
+        };
+        const existing = await groupsStorage.getById(DEFAULT_GROUP_ID);
+        if (!existing) await groupsStorage.add(groupToSet);
+      }
       if (groupToSet) {
         setGroup(groupToSet);
         await AsyncStorage.setItem(GROUP_STORAGE_KEY, JSON.stringify(groupToSet));
@@ -402,19 +415,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       let userGroup = await groupsStorage.findById(localUser.currentGroupId);
       if (!userGroup && localUser.currentGroupId === DEFAULT_GROUP_ID) {
-        const firestoreGroup = await getGroupFromFirestore(DEFAULT_GROUP_ID);
-        if (firestoreGroup) {
-          const groupForApp: Group = {
-            id: firestoreGroup.id,
-            name: firestoreGroup.name,
-            createdBy: firestoreGroup.createdBy,
-            createdAt: firestoreGroup.createdAt,
-            members: firestoreGroup.members.map((m) => ({ userId: m.userId, role: m.role as 'admin' | 'member', joinedAt: m.joinedAt })),
-            isDefault: firestoreGroup.isDefault,
-          };
-          await groupsStorage.add(groupForApp);
-          userGroup = groupForApp;
-        } else {
+        try {
+          const firestoreGroup = await getGroupFromFirestore(DEFAULT_GROUP_ID);
+          if (firestoreGroup) {
+            const groupForApp: Group = {
+              id: firestoreGroup.id,
+              name: firestoreGroup.name,
+              createdBy: firestoreGroup.createdBy,
+              createdAt: firestoreGroup.createdAt,
+              members: firestoreGroup.members.map((m) => ({ userId: m.userId, role: m.role as 'admin' | 'member', joinedAt: m.joinedAt })),
+              isDefault: firestoreGroup.isDefault,
+            };
+            await groupsStorage.add(groupForApp);
+            userGroup = groupForApp;
+          } else {
+            userGroup = {
+              id: DEFAULT_GROUP_ID,
+              name: 'Семья',
+              createdBy: '',
+              createdAt: new Date(),
+              members: [],
+              isDefault: true,
+            };
+            await groupsStorage.add(userGroup);
+          }
+        } catch (groupErr) {
+          console.warn('[Auth] getGroupFromFirestore failed, using fallback group:', groupErr);
           userGroup = {
             id: DEFAULT_GROUP_ID,
             name: 'Семья',
@@ -435,7 +461,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setGroup(userGroup);
         await AsyncStorage.setItem(GROUP_STORAGE_KEY, JSON.stringify(userGroup));
       } else {
-        console.warn('Group not found for user:', localUser.currentGroupId);
+        console.warn('[Auth] Group not found for user:', localUser.currentGroupId);
       }
       await joinGroupInFirestore(DEFAULT_GROUP_ID, localUser.id, localUser.role || 'member').catch(() => {});
 
