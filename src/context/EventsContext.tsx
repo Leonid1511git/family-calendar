@@ -4,7 +4,7 @@ import { Event, EventColor, RecurrenceRule, ParsedVoiceData, Participant } from 
 import { addDays, addWeeks, addMonths, isBefore, isAfter, startOfDay, endOfDay, format } from 'date-fns';
 import { syncService } from '../services/syncService';
 import { notificationService } from '../services/notificationService';
-import { subscribeToGroupEvents, getGroupEventsFromFirestore } from '../services/firebase';
+import { subscribeToGroupEvents, getGroupEventsFromFirestore, getAuthAsync } from '../services/firebase';
 import { useAuth } from './AuthContext';
 
 type EventsContextType = {
@@ -90,81 +90,7 @@ export function EventsProvider({ children }: { children: ReactNode }) {
   const [syncStatus, setSyncStatus] = useState<import('../services/syncService').SyncStatus>('synced');
   const { user, group } = useAuth();
 
-  useEffect(() => {
-    loadEvents();
-    
-    // Subscribe to sync status
-    const unsubscribe = syncService.subscribe((status) => {
-      setSyncStatus(status);
-    });
-
-    return () => {
-      unsubscribe();
-    };
-  }, []);
-
-  // Загрузка событий при появлении группы: сначала подтягиваем из Firestore (восстановление после переустановки),
-  // затем подписка на обновления в реальном времени. Без группы — очищаем список.
-  // На iOS group может быть null при наличии user — используем DEFAULT_GROUP_ID. Несколько повторов при ошибке (auth/сеть).
-  useEffect(() => {
-    const fromState = [group?.id, user?.currentGroupId].filter(Boolean) as string[];
-    const ids = [...new Set(fromState.length > 0 ? fromState : (user ? [DEFAULT_GROUP_ID] : []))] as string[];
-    if (ids.length === 0) {
-      loadEvents();
-      return;
-    }
-    console.log(LOG_TAG, 'Initial pull: groupIds', ids, 'group?.id', group?.id, 'user?.currentGroupId', user?.currentGroupId);
-
-    let cancelled = false;
-    const delays = [0, 2000, 5000];
-    const runInitialPull = async (attemptIndex = 0) => {
-      for (const groupId of ids) {
-        if (cancelled) return;
-        try {
-          if (attemptIndex > 0) {
-            console.log(LOG_TAG, 'Retry attempt', attemptIndex + 1, 'groupId', groupId);
-          }
-          const firestoreEvents = await getGroupEventsFromFirestore(groupId);
-          if (cancelled) return;
-          console.log(LOG_TAG, 'getGroupEventsFromFirestore ok', groupId, 'count', firestoreEvents?.length ?? 0);
-          await syncService.pullChanges(groupId, firestoreEvents);
-          if (cancelled) return;
-          await loadEvents();
-          console.log(LOG_TAG, 'Initial pull done', groupId);
-          return;
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          const code = err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : '';
-          console.warn(LOG_TAG, 'Initial load events failed', { groupId, attempt: attemptIndex + 1, error: msg, code });
-          if (attemptIndex < delays.length - 1 && !cancelled) {
-            const delay = delays[attemptIndex + 1];
-            console.log(LOG_TAG, 'Retry in', delay, 'ms');
-            await new Promise((r) => setTimeout(r, delay));
-            if (!cancelled) await runInitialPull(attemptIndex + 1);
-            return;
-          }
-        } finally {
-          if (!cancelled) loadEvents();
-        }
-      }
-    };
-    runInitialPull();
-
-    const unsubscribes = ids.map((groupId) =>
-      subscribeToGroupEvents(groupId, (firestoreEvents) => {
-        syncService
-          .pullChanges(groupId, firestoreEvents)
-          .then(() => loadEvents())
-          .catch((err) => console.warn(LOG_TAG, 'Subscription pull failed', groupId, err));
-      })
-    );
-
-    return () => {
-      cancelled = true;
-      unsubscribes.forEach((unsub) => unsub());
-    };
-  }, [group?.id, user?.currentGroupId, loadEvents]);
-
+  // loadEvents объявлен до useEffect-ов, которые его используют.
   const loadEvents = useCallback(async () => {
     try {
       const allEvents = await eventsStorage.getAll();
@@ -187,6 +113,97 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
+  }, [group?.id, user?.currentGroupId]);
+
+  useEffect(() => {
+    loadEvents();
+
+    // Subscribe to sync status
+    const unsubscribe = syncService.subscribe((status) => {
+      setSyncStatus(status);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  // Загрузка событий при появлении группы: сначала подтягиваем из Firestore (восстановление после переустановки),
+  // затем подписка на обновления в реальном времени.
+  // FIX: ждём готовности Firebase Auth перед Firestore-запросами (iOS race condition).
+  // FIX: loadEvents убран из deps — он зависит от тех же group?.id / user?.currentGroupId.
+  useEffect(() => {
+    const fromState = [group?.id, user?.currentGroupId].filter(Boolean) as string[];
+    const ids = [...new Set(fromState.length > 0 ? fromState : (user ? [DEFAULT_GROUP_ID] : []))] as string[];
+    if (ids.length === 0) {
+      loadEvents();
+      return;
+    }
+    console.log(LOG_TAG, 'Initial pull: groupIds', ids, 'group?.id', group?.id, 'user?.currentGroupId', user?.currentGroupId);
+
+    let cancelled = false;
+    const unsubscribeFns: (() => void)[] = [];
+    const delays = [0, 2000, 5000];
+
+    const runInitialPull = async () => {
+      for (const groupId of ids) {
+        if (cancelled) return;
+        let success = false;
+        for (let attempt = 0; attempt < delays.length; attempt++) {
+          if (cancelled) return;
+          if (attempt > 0) {
+            console.log(LOG_TAG, 'Retry attempt', attempt + 1, 'groupId', groupId);
+            await new Promise<void>((r) => setTimeout(r, delays[attempt]));
+          }
+          try {
+            // Ждём готовности Firebase Auth — на iOS Auth инициализируется с задержкой,
+            // и Firestore-запросы до этого момента падают с permission-denied.
+            await getAuthAsync();
+            if (cancelled) return;
+            const firestoreEvents = await getGroupEventsFromFirestore(groupId);
+            if (cancelled) return;
+            console.log(LOG_TAG, 'getGroupEventsFromFirestore ok', groupId, 'count', firestoreEvents?.length ?? 0);
+            await syncService.pullChanges(groupId, firestoreEvents);
+            if (cancelled) return;
+            console.log(LOG_TAG, 'Initial pull done', groupId);
+            success = true;
+            break;
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            const code = err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : '';
+            console.warn(LOG_TAG, 'Initial load events failed', { groupId, attempt: attempt + 1, error: msg, code });
+          }
+        }
+        if (!cancelled) await loadEvents();
+        if (success) return;
+      }
+    };
+    runInitialPull();
+
+    // Подписки устанавливаем после готовности Auth, чтобы onSnapshot не падал с permission-denied.
+    getAuthAsync()
+      .then(() => {
+        if (cancelled) return;
+        const unsubs = ids.map((groupId) =>
+          subscribeToGroupEvents(
+            groupId,
+            (firestoreEvents) => {
+              syncService
+                .pullChanges(groupId, firestoreEvents)
+                .then(() => loadEvents())
+                .catch((err) => console.warn(LOG_TAG, 'Subscription pull failed', groupId, err));
+            },
+            (err) => console.warn(LOG_TAG, 'Subscription error', groupId, err),
+          )
+        );
+        unsubs.forEach((u) => unsubscribeFns.push(u));
+      })
+      .catch((err) => console.warn(LOG_TAG, 'getAuthAsync failed for subscriptions', err));
+
+    return () => {
+      cancelled = true;
+      unsubscribeFns.forEach((unsub) => unsub());
+    };
   }, [group?.id, user?.currentGroupId]);
 
   const addEvent = useCallback(async (

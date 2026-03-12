@@ -1,4 +1,6 @@
 import { initializeApp } from '@firebase/app';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore — getReactNativePersistence экспортируется в RN-бандле, но отсутствует в публичных типах @firebase/auth
 import { initializeAuth, getReactNativePersistence, getAuth as getFirebaseAuth, Auth } from '@firebase/auth';
 import {
   getFirestore,
@@ -246,14 +248,22 @@ export const getGroupEventsFromFirestore = async (groupId: string): Promise<any[
 };
 
 // Subscribe to group events
-export const subscribeToGroupEvents = (groupId: string, callback: (events: any[]) => void) => {
-  return onSnapshot(groupEventsQuery(groupId), (snapshot) => {
-    const events = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
-    callback(events);
-  });
+export const subscribeToGroupEvents = (
+  groupId: string,
+  callback: (events: any[]) => void,
+  onError?: (err: Error) => void,
+) => {
+  return onSnapshot(
+    groupEventsQuery(groupId),
+    (snapshot) => {
+      const events = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      callback(events);
+    },
+    onError,
+  );
 };
 
 // Subscribe to group changes
