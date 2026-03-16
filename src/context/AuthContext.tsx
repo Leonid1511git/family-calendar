@@ -264,6 +264,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await getAuthAsync();
           step = 'signInWithCustomToken';
           await signInWithCustomToken(getAuth(), customToken);
+          // Принудительно получаем ID token — Firestore SDK использует его для авторизации.
+          // Без этого первый Firestore-запрос сразу после signIn может упасть с permission-denied.
+          step = 'getIdToken';
+          await getAuth().currentUser?.getIdToken(true);
           const now = new Date();
           // Всегда привязываем к default-family (жёсткая перезапись, не доверяем старым значениям с сервера).
           const localUser: User = {
@@ -285,6 +289,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
           setUser(localUser);
           await AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(localUser));
+          step = 'getGroupFromFirestore';
           const userGroup = await getGroupFromFirestore(DEFAULT_GROUP_ID);
           if (userGroup) {
             const groupForApp: Group = {
@@ -313,6 +318,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setGroup(fallbackGroup);
             await AsyncStorage.setItem(GROUP_STORAGE_KEY, JSON.stringify(fallbackGroup));
           }
+          step = 'joinGroupInFirestore';
           await joinGroupInFirestore(DEFAULT_GROUP_ID, localUser.id, localUser.role || 'member').catch(() => {});
           return;
         } catch (telegramErr: unknown) {
