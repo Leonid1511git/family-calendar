@@ -489,6 +489,7 @@ export function EventsProvider({ children }: { children: ReactNode }) {
       return;
     }
     console.log(LOG_TAG, 'forcePullFromServer start', ids);
+    await getAuthAsync();
     for (const groupId of ids) {
       const maxAttempts = 3;
       for (let attempt = 0; attempt < maxAttempts; attempt++) {

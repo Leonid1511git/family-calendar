@@ -99,6 +99,7 @@ export const fromTimestamp = (timestamp: Timestamp): number => {
 
 // Firestore operations for users
 export const createUserInFirestore = async (userData: any) => {
+  await getAuthAsync();
   const userRef = firestoreDoc(usersRef, userData.id);
   await setDoc(userRef, {
     ...userData,
@@ -109,6 +110,7 @@ export const createUserInFirestore = async (userData: any) => {
 };
 
 export const updateUserInFirestore = async (userId: string, userData: any) => {
+  await getAuthAsync();
   const userRef = firestoreDoc(usersRef, userId);
   await updateDoc(userRef, {
     ...userData,
@@ -118,6 +120,7 @@ export const updateUserInFirestore = async (userId: string, userData: any) => {
 
 // Firestore operations for events (только примитивы и Timestamp — вложенные Date ломают запись)
 export const createEventInFirestore = async (eventData: any) => {
+  await getAuthAsync();
   const eventRef = firestoreDoc(eventsRef);
   const now = Timestamp.now();
   const eventDoc: Record<string, unknown> = {
@@ -147,6 +150,7 @@ export const createEventInFirestore = async (eventData: any) => {
 };
 
 export const updateEventInFirestore = async (eventId: string, eventData: any) => {
+  await getAuthAsync();
   const eventRef = firestoreDoc(db, 'events', eventId);
   await updateDoc(eventRef, {
     ...eventData,
@@ -155,12 +159,14 @@ export const updateEventInFirestore = async (eventId: string, eventData: any) =>
 };
 
 export const deleteEventFromFirestore = async (eventId: string) => {
+  await getAuthAsync();
   const eventRef = firestoreDoc(db, 'events', eventId);
   await deleteDoc(eventRef);
 };
 
 // Group operations
 export const createGroupInFirestore = async (groupData: any) => {
+  await getAuthAsync();
   const groupRef = firestoreDoc(groupsRef);
   await setDoc(groupRef, {
     ...groupData,
@@ -171,6 +177,7 @@ export const createGroupInFirestore = async (groupData: any) => {
 };
 
 export const joinGroupInFirestore = async (groupId: string, userId: string, role: string = 'member') => {
+  await getAuthAsync();
   const memberRef = firestoreDoc(db, 'groups', groupId, 'members', userId);
   await setDoc(memberRef, {
     role,
@@ -179,6 +186,7 @@ export const joinGroupInFirestore = async (groupId: string, userId: string, role
 };
 
 export const getGroupMembers = async (groupId: string) => {
+  await getAuthAsync();
   const membersRef = collection(db, 'groups', groupId, 'members');
   const snapshot = await getDocs(membersRef);
   return snapshot.docs.map(doc => ({
@@ -196,6 +204,7 @@ export const getGroupFromFirestore = async (groupId: string): Promise<{
   members: { userId: string; role: string; joinedAt: Date }[];
   isDefault: boolean;
 } | null> => {
+  await getAuthAsync();
   const groupRef = firestoreDoc(db, 'groups', groupId);
   const groupSnap = await getDoc(groupRef);
   if (!groupSnap.exists()) return null;
@@ -231,6 +240,7 @@ const EVENTS_SYNC_LOG = '[EventsSync]';
 
 /** Загружает все события группы из Firestore (для восстановления после переустановки). */
 export const getGroupEventsFromFirestore = async (groupId: string): Promise<any[]> => {
+  await getAuthAsync();
   try {
     const snapshot = await getDocs(groupEventsQuery(groupId));
     const events = snapshot.docs.map(doc => ({
