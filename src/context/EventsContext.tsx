@@ -158,8 +158,7 @@ export function EventsProvider({ children }: { children: ReactNode }) {
           try {
             // Ждём готовности Firebase Auth — на iOS Auth инициализируется с задержкой,
             // и Firestore-запросы до этого момента падают с permission-denied.
-            const auth = await getAuthAsync();
-            console.log(LOG_TAG, 'auth.currentUser uid:', auth.currentUser?.uid ?? 'null — нет Firebase-сессии');
+            await getAuthAsync();
             if (cancelled) return;
             const firestoreEvents = await getGroupEventsFromFirestore(groupId);
             if (cancelled) return;
