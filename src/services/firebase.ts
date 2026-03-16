@@ -1,7 +1,7 @@
 import { initializeApp } from '@firebase/app';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — getReactNativePersistence экспортируется в RN-бандле, но отсутствует в публичных типах @firebase/auth
-import { initializeAuth, getReactNativePersistence, getAuth as getFirebaseAuth, Auth } from '@firebase/auth';
+import { initializeAuth, getReactNativePersistence, getAuth as getFirebaseAuth, onAuthStateChanged, Auth } from '@firebase/auth';
 import {
   getFirestore,
   collection,
@@ -44,17 +44,29 @@ function doInitAuth(): Promise<Auth> {
   return new Promise<Auth>((resolve, reject) => {
     setTimeout(() => {
       try {
-        _auth = initializeAuth(app, {
-          persistence: getReactNativePersistence(ReactNativeAsyncStorage),
-        });
-        resolve(_auth);
-      } catch (err: unknown) {
-        if (err && typeof err === 'object' && 'code' in err && (err as { code: string }).code === 'auth/already-initialized') {
-          _auth = getFirebaseAuth(app);
-          resolve(_auth);
-        } else {
-          reject(err);
+        let auth: Auth;
+        try {
+          auth = initializeAuth(app, {
+            persistence: getReactNativePersistence(ReactNativeAsyncStorage),
+          });
+        } catch (err: unknown) {
+          if (err && typeof err === 'object' && 'code' in err && (err as { code: string }).code === 'auth/already-initialized') {
+            auth = getFirebaseAuth(app);
+          } else {
+            reject(err);
+            return;
+          }
         }
+        // Ждём первого onAuthStateChanged — это сигнал, что Firebase восстановил
+        // (или не нашёл) персистентную сессию из AsyncStorage. Без этого Firestore-запросы
+        // могут упасть с permission-denied, пока сессия ещё не загружена.
+        const unsubscribe = onAuthStateChanged(auth, () => {
+          unsubscribe();
+          _auth = auth;
+          resolve(auth);
+        });
+      } catch (err) {
+        reject(err);
       }
     }, AUTH_INIT_DELAY_MS);
   });
