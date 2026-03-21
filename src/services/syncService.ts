@@ -245,8 +245,9 @@ class SyncService {
     return new Date(v);
   }
 
-  // Pull changes from Firestore (не воскрешаем локально удалённые события).
-  // Локальные события с remoteId, которого нет в remoteEvents, считаем удалёнными в облаке — помечаем isDeleted.
+  // Pull changes from Firestore.
+  // Если remoteEvents пустой — пропускаем шаг пометки удалённых (пустой ответ может быть временным кешом Firestore).
+  // Если событие есть в Firestore, но локально помечено isDeleted — восстанавливаем его (ложное удаление из-за пустого кеша).
   public async pullChanges(groupId: string, remoteEvents: any[]) {
     console.log('[EventsSync]', 'pullChanges start', groupId, 'remoteCount', remoteEvents?.length ?? 0);
     const allEvents = await eventsStorage.getAll();
@@ -258,6 +259,24 @@ class SyncService {
       try {
         const existingEvent = localEventsInGroup.find(e => e.remoteId === remoteEvent.id);
         if (existingEvent?.isDeleted) {
+          // Событие существует в Firestore, но локально помечено удалённым.
+          // Это может произойти если onSnapshot сработал с пустым кешем и пометил всё удалённым.
+          // Восстанавливаем из Firestore как источника истины.
+          const remoteUpdatedAt = this.toDate(remoteEvent.updatedAt).getTime();
+          await eventsStorage.update(existingEvent.id, {
+            title: remoteEvent.title,
+            description: remoteEvent.description ?? undefined,
+            startDate: this.toDate(remoteEvent.startDate),
+            endDate: this.toDate(remoteEvent.endDate),
+            allDay: remoteEvent.allDay ?? false,
+            location: remoteEvent.location ?? undefined,
+            color: (remoteEvent.color as EventColor) ?? 'blue',
+            type: remoteEvent.type,
+            recurrence: this.parseRecurrence(remoteEvent),
+            isDeleted: false,
+            isSynced: true,
+            updatedAt: new Date(remoteUpdatedAt),
+          });
           continue;
         }
         const existingNonDeleted = localEventsNonDeleted.find(e => e.remoteId === remoteEvent.id);
@@ -331,12 +350,16 @@ class SyncService {
     }
 
     // События, удалённые в Firestore (документ удалён), должны стать удалёнными локально на всех устройствах.
-    for (const local of localEventsInGroup) {
-      if (local.remoteId && !local.isDeleted && !remoteIds.has(local.remoteId)) {
-        await eventsStorage.update(local.id, {
-          isDeleted: true,
-          updatedAt: new Date(),
-        });
+    // Пропускаем этот шаг если remoteEvents пустой — пустой ответ может быть временным состоянием кеша Firestore,
+    // а не реальным удалением всех событий.
+    if (remoteEvents.length > 0) {
+      for (const local of localEventsInGroup) {
+        if (local.remoteId && !local.isDeleted && !remoteIds.has(local.remoteId)) {
+          await eventsStorage.update(local.id, {
+            isDeleted: true,
+            updatedAt: new Date(),
+          });
+        }
       }
     }
     const afterCount = (await eventsStorage.getAll()).filter(e => e.groupId === groupId && !e.isDeleted).length;

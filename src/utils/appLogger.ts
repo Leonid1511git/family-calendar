@@ -62,6 +62,17 @@ export function getLogsAsText(): string {
 }
 
 /**
+ * Возвращает записи буфера в структурированном виде для отображения в UI.
+ */
+export function getLogsAsArray(): { ts: string; level: string; msg: string }[] {
+  return buffer.map((e) => ({
+    ts: e.ts,
+    level: e.level,
+    msg: e.args.map(formatArg).join(' '),
+  }));
+}
+
+/**
  * Очистить буфер (опционально).
  */
 export function clearLogs(): void {

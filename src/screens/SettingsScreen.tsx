@@ -21,7 +21,7 @@ import { ThemeType } from '../types';
 import { settingsStorage } from '../database';
 import { CalendarViewMode } from '../types';
 import * as FileSystem from 'expo-file-system/legacy';
-import { getLogsAsText } from '../utils/appLogger';
+import { getLogsAsText, getLogsAsArray, clearLogs } from '../utils/appLogger';
 
 export default function SettingsScreen() {
   const { theme, setTheme, isDark, colors } = useTheme();
@@ -37,6 +37,8 @@ export default function SettingsScreen() {
   const [reminderTime, setReminderTime] = useState(4320); // 3 days default
   const [defaultCalendarView, setDefaultCalendarView] = useState<CalendarViewMode>('month');
   const [isExportingLogs, setIsExportingLogs] = useState(false);
+  const [logsVisible, setLogsVisible] = useState(false);
+  const [logEntries, setLogEntries] = useState<{ ts: string; level: string; msg: string }[]>([]);
 
   useEffect(() => {
     settingsStorage.getNotifyOwnActions().then(setNotifyOwnActions);
@@ -72,6 +74,26 @@ export default function SettingsScreen() {
     } finally {
       setIsExportingLogs(false);
     }
+  };
+
+  const handleToggleLogs = () => {
+    if (!logsVisible) {
+      setLogEntries(getLogsAsArray().slice(-200).reverse());
+    }
+    setLogsVisible((v) => !v);
+  };
+
+  const handleCopyLogs = async () => {
+    try {
+      await Share.share({ message: getLogsAsText(), title: 'Логи приложения' });
+    } catch {
+      Alert.alert('Ошибка', 'Не удалось скопировать логи.');
+    }
+  };
+
+  const handleClearLogs = () => {
+    clearLogs();
+    setLogEntries([]);
   };
 
   const handleLogout = () => {
@@ -295,6 +317,57 @@ export default function SettingsScreen() {
       fontSize: FontSize.sm,
       color: colors.textTertiary,
       marginBottom: Spacing.xl,
+    },
+    logsContainer: {
+      height: 300,
+      backgroundColor: colors.surfaceVariant,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+    logsScroll: {
+      padding: Spacing.sm,
+    },
+    logEntry: {
+      marginBottom: 4,
+    },
+    logTs: {
+      fontSize: 10,
+      color: colors.textTertiary,
+      fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    },
+    logMsg: {
+      fontSize: 11,
+      fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    },
+    logsActions: {
+      flexDirection: 'row',
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+    logsAction: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: Spacing.xs,
+      padding: Spacing.sm,
+    },
+    logsActionBorder: {
+      borderRightWidth: 1,
+      borderRightColor: colors.border,
+    },
+    logsActionText: {
+      fontSize: FontSize.sm,
+      color: colors.primary,
+    },
+    logsActionTextDanger: {
+      color: colors.error,
+    },
+    logsEmpty: {
+      padding: Spacing.md,
+      textAlign: 'center',
+      color: colors.textTertiary,
+      fontSize: FontSize.sm,
     },
   });
 
@@ -545,14 +618,88 @@ export default function SettingsScreen() {
             >
               <View style={styles.settingLeft}>
                 <View style={styles.settingIcon}>
-                  <Ionicons name="document-text-outline" size={18} color={colors.primary} />
+                  <Ionicons name="download-outline" size={18} color={colors.primary} />
                 </View>
                 <Text style={styles.settingText}>
                   {isExportingLogs ? 'Подготовка…' : 'Скачать логи'}
                 </Text>
               </View>
-              <Ionicons name="download-outline" size={20} color={colors.textSecondary} />
+              <Ionicons name="share-outline" size={20} color={colors.textSecondary} />
             </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.settingItem, styles.settingItemLast]}
+              onPress={handleToggleLogs}
+              activeOpacity={0.7}
+            >
+              <View style={styles.settingLeft}>
+                <View style={styles.settingIcon}>
+                  <Ionicons name="terminal-outline" size={18} color={colors.primary} />
+                </View>
+                <Text style={styles.settingText}>Просмотр логов</Text>
+              </View>
+              <Ionicons
+                name={logsVisible ? 'chevron-up' : 'chevron-down'}
+                size={20}
+                color={colors.textSecondary}
+              />
+            </TouchableOpacity>
+
+            {logsVisible && (
+              <>
+                <View style={styles.logsContainer}>
+                  <ScrollView
+                    style={styles.logsScroll}
+                    nestedScrollEnabled
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    {logEntries.length === 0 ? (
+                      <Text style={styles.logsEmpty}>Буфер логов пуст</Text>
+                    ) : (
+                      logEntries.map((entry, i) => (
+                        <View key={i} style={styles.logEntry}>
+                          <Text style={styles.logTs}>
+                            {entry.ts.slice(11, 23)} [{entry.level.toUpperCase()}]
+                          </Text>
+                          <Text
+                            style={[
+                              styles.logMsg,
+                              {
+                                color:
+                                  entry.level === 'error'
+                                    ? colors.error
+                                    : entry.level === 'warn'
+                                    ? colors.warning
+                                    : colors.text,
+                              },
+                            ]}
+                          >
+                            {entry.msg}
+                          </Text>
+                        </View>
+                      ))
+                    )}
+                  </ScrollView>
+                </View>
+                <View style={styles.logsActions}>
+                  <TouchableOpacity
+                    style={[styles.logsAction, styles.logsActionBorder]}
+                    onPress={handleCopyLogs}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="copy-outline" size={16} color={colors.primary} />
+                    <Text style={styles.logsActionText}>Скопировать</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.logsAction}
+                    onPress={handleClearLogs}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="trash-outline" size={16} color={colors.error} />
+                    <Text style={[styles.logsActionText, styles.logsActionTextDanger]}>Очистить</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
           </View>
         </View>
 
