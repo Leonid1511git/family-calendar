@@ -16,6 +16,7 @@ import {
   Timestamp,
   writeBatch,
   getDocs,
+  getDocsFromServer,
   orderBy,
 } from 'firebase/firestore';
 import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
@@ -164,10 +165,10 @@ export const createEventInFirestore = async (eventData: any) => {
 export const updateEventInFirestore = async (eventId: string, eventData: any) => {
   await getAuthAsync();
   const eventRef = firestoreDoc(db, 'events', eventId);
-  await updateDoc(eventRef, {
-    ...eventData,
-    updatedAt: Timestamp.now(),
-  });
+  const payload = Object.fromEntries(
+    Object.entries({ ...eventData, updatedAt: Timestamp.now() }).filter(([, v]) => v !== undefined)
+  );
+  await updateDoc(eventRef, payload);
 };
 
 export const deleteEventFromFirestore = async (eventId: string) => {
@@ -250,11 +251,12 @@ const groupEventsQuery = (groupId: string) => query(
 
 const EVENTS_SYNC_LOG = '[EventsSync]';
 
-/** Загружает все события группы из Firestore (для восстановления после переустановки). */
+/** Загружает все события группы из Firestore (для восстановления после переустановки).
+ *  Использует getDocsFromServer — игнорирует локальный кэш, всегда получает актуальные данные. */
 export const getGroupEventsFromFirestore = async (groupId: string): Promise<any[]> => {
   await getAuthAsync();
   try {
-    const snapshot = await getDocs(groupEventsQuery(groupId));
+    const snapshot = await getDocsFromServer(groupEventsQuery(groupId));
     const events = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
@@ -269,10 +271,13 @@ export const getGroupEventsFromFirestore = async (groupId: string): Promise<any[
   }
 };
 
-// Subscribe to group events
+// Subscribe to group events.
+// fromCache=true означает, что снапшот из локального кэша Firestore и может быть неполным
+// (например, содержать только только что созданные события, а не все). Caller должен
+// пропускать логику удаления локальных событий при fromCache=true.
 export const subscribeToGroupEvents = (
   groupId: string,
-  callback: (events: any[]) => void,
+  callback: (events: any[], fromCache: boolean) => void,
   onError?: (err: Error) => void,
 ) => {
   return onSnapshot(
@@ -282,7 +287,7 @@ export const subscribeToGroupEvents = (
         id: doc.id,
         ...doc.data(),
       }));
-      callback(events);
+      callback(events, snapshot.metadata.fromCache);
     },
     onError,
   );

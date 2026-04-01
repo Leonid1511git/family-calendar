@@ -78,6 +78,28 @@ class SyncService {
     }
   }
 
+  /** Сразу обновляет событие в Firestore. Возвращает true при успехе, false при ошибке или отсутствии remoteId. */
+  public async updateEventImmediate(recordId: string, data: any): Promise<boolean> {
+    if (!data.remoteId) return false;
+    try {
+      const eventData = {
+        ...data,
+        startDate: toTimestamp(data.startDate),
+        endDate: toTimestamp(data.endDate),
+        recurrence: this.serializeRecurrence(data.recurrence),
+      };
+      await updateEventInFirestore(data.remoteId, eventData);
+      const event = await eventsStorage.getById(recordId);
+      if (event) {
+        await eventsStorage.update(recordId, { isSynced: true });
+      }
+      return true;
+    } catch (err) {
+      console.error('updateEventImmediate failed:', err);
+      return false;
+    }
+  }
+
   /** Сразу удаляет событие из Firestore по remoteId. Возвращает true при успехе, false при ошибке. */
   public async deleteEventImmediate(remoteId: string): Promise<boolean> {
     if (!this.isOnline || !remoteId) return false;
@@ -109,9 +131,9 @@ class SyncService {
 
     await syncQueueStorage.add(item);
 
-    if (this.isOnline) {
-      this.syncPendingChanges();
-    }
+    // Всегда пробуем синхронизировать — syncPendingChanges сам проверит isOnline.
+    // Без этого обновления теряются если NetInfo ошибочно показывает offline (iOS/Expo).
+    this.syncPendingChanges();
   }
 
   // Sync pending changes
@@ -248,7 +270,10 @@ class SyncService {
   // Pull changes from Firestore.
   // Если remoteEvents пустой — пропускаем шаг пометки удалённых (пустой ответ может быть временным кешом Firestore).
   // Если событие есть в Firestore, но локально помечено isDeleted — восстанавливаем его (ложное удаление из-за пустого кеша).
-  public async pullChanges(groupId: string, remoteEvents: any[]) {
+  // fromCache=true: снапшот из локального кэша Firestore и может содержать только часть событий
+  //   (например, только что созданные на другом устройстве). В этом случае НЕ помечаем локальные
+  //   события удалёнными — иначе старые события пропадут до прихода полного ответа с сервера.
+  public async pullChanges(groupId: string, remoteEvents: any[], fromCache: boolean = false) {
     console.log('[EventsSync]', 'pullChanges start', groupId, 'remoteCount', remoteEvents?.length ?? 0);
     const allEvents = await eventsStorage.getAll();
     const localEventsInGroup = allEvents.filter(e => e.groupId === groupId);
@@ -350,9 +375,10 @@ class SyncService {
     }
 
     // События, удалённые в Firestore (документ удалён), должны стать удалёнными локально на всех устройствах.
-    // Пропускаем этот шаг если remoteEvents пустой — пустой ответ может быть временным состоянием кеша Firestore,
-    // а не реальным удалением всех событий.
-    if (remoteEvents.length > 0) {
+    // Пропускаем этот шаг если:
+    //   - remoteEvents пустой (может быть временным состоянием кэша)
+    //   - fromCache=true (снапшот неполный — из локального кэша Firestore, не с сервера)
+    if (!fromCache && remoteEvents.length > 0) {
       for (const local of localEventsInGroup) {
         if (local.remoteId && !local.isDeleted && !remoteIds.has(local.remoteId)) {
           await eventsStorage.update(local.id, {

@@ -187,9 +187,10 @@ export function EventsProvider({ children }: { children: ReactNode }) {
         const unsubs = ids.map((groupId) =>
           subscribeToGroupEvents(
             groupId,
-            (firestoreEvents) => {
+            (firestoreEvents, fromCache) => {
+              console.log(LOG_TAG, 'onSnapshot', groupId, 'count', firestoreEvents.length, 'fromCache', fromCache);
               syncService
-                .pullChanges(groupId, firestoreEvents)
+                .pullChanges(groupId, firestoreEvents, fromCache)
                 .then(() => loadEvents())
                 .catch((err) => console.warn(LOG_TAG, 'Subscription pull failed', groupId, err));
             },
@@ -334,8 +335,46 @@ export function EventsProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    // Notify group members (Telegram) об изменении события — только реально изменившиеся поля; дату события показываем всегда
-    if (user && group) {
+    const syncPayload = {
+      remoteId: event.remoteId,
+      title: updates.title || event.title,
+      description: updates.description !== undefined ? updates.description : event.description,
+      startDate: (updates.startDate || event.startDate).getTime(),
+      endDate: (updates.endDate || event.endDate).getTime(),
+      allDay: updates.allDay !== undefined ? updates.allDay : event.allDay,
+      location: updates.location !== undefined ? updates.location : event.location,
+      color: updates.color || event.color,
+      type: updates.type || event.type,
+      recurrence: updates.recurrence !== undefined ? updates.recurrence : event.recurrence,
+    };
+
+    console.log('[EventsSync]', 'updateEvent sync', id, 'remoteId:', event.remoteId ?? 'MISSING');
+
+    let syncedToFirestore = false;
+    if (!event.remoteId) {
+      // Событие не имеет remoteId — создаём запись в Firestore вместо update.
+      // Это происходит если событие было создано офлайн и remoteId так и не был записан.
+      const groupId = updatedEvent.groupId || group?.id || user?.currentGroupId || '';
+      const createPayload = { ...syncPayload, groupId, createdBy: event.createdBy, isDeleted: false };
+      const remoteId = await syncService.createEventImmediate(id, createPayload);
+      if (remoteId) {
+        syncedToFirestore = true;
+      } else {
+        await syncService.queueOperation('create', 'events', id, createPayload);
+      }
+    } else {
+      // Сначала пробуем сразу записать в Firestore (прямой путь, не зависит от isOnline).
+      // Если не получилось (нет сети, ошибка) — кладём в очередь.
+      const updated = await syncService.updateEventImmediate(id, syncPayload);
+      if (updated) {
+        syncedToFirestore = true;
+      } else {
+        await syncService.queueOperation('update', 'events', id, syncPayload);
+      }
+    }
+
+    // Notify group members (Telegram) об изменении события — только после подтверждения записи в Firestore.
+    if (syncedToFirestore && user && group) {
       const notifyOwnActions = await settingsStorage.getNotifyOwnActions();
       const changeDetails: { newTitle?: string; newTime?: string } = {};
       const oldStart = event.startDate instanceof Date ? event.startDate : new Date(event.startDate);
@@ -365,20 +404,6 @@ export function EventsProvider({ children }: { children: ReactNode }) {
         { senderTelegramId: user.telegramId, notifyOwnActions, changeDetails: Object.keys(changeDetails).length > 0 ? changeDetails : undefined, eventDateTime }
       );
     }
-
-    // Queue for sync
-    await syncService.queueOperation('update', 'events', id, {
-      remoteId: event.remoteId,
-      title: updates.title || event.title,
-      description: updates.description !== undefined ? updates.description : event.description,
-      startDate: (updates.startDate || event.startDate).getTime(),
-      endDate: (updates.endDate || event.endDate).getTime(),
-      allDay: updates.allDay !== undefined ? updates.allDay : event.allDay,
-      location: updates.location !== undefined ? updates.location : event.location,
-      color: updates.color || event.color,
-      type: updates.type || event.type,
-      recurrence: updates.recurrence !== undefined ? updates.recurrence : event.recurrence,
-    });
   }, [user, group]);
 
   const deleteEvent = useCallback(async (id: string, deleteSeries: boolean = false) => {
